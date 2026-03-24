@@ -244,7 +244,7 @@ module mkProc (Proc_IFC);
    rule rl_tohost;
       let x <- mmioPlatform.to_host;
       $display ("%0d: mmioPlatform.rl_tohost: 0x%0x (= %0d)", cur_cycle, x, x);
-      if (x != 0) begin
+      if ((x & 1) == 1) begin
          // Standard RISC-V ISA tests finish by writing a value tohost with x[0]==1.
          // Further when x[63:1]==0, all tests within the program pass,
          // otherwise x[63:1] = the test within the program that failed.
@@ -254,6 +254,8 @@ module mkProc (Proc_IFC);
          else
             $display ("FAIL %0d", failed_testnum);
          $finish (0);
+      end else begin
+         $display("FIND ME %0d", (x >> 1));
       end
    endrule
 
