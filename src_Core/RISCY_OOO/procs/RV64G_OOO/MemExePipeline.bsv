@@ -355,9 +355,9 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
     Fifo#(1, Tuple4#(LdQTag, Addr, Bool, Bit#(16))) reqLdQ <- mkBypassFifo;
     Fifo#(1, ProcRq#(DProcReqId)) reqLrScAmoQ <- mkBypassFifo;
 `ifdef TSO_MM
-    Fifo#(1, Tuple2#(Addr, Bit#(16))) reqStQ <- mkBypassFifo;
+    Fifo#(1, Tuple3#(Addr, Bit#(16), MemOp)) reqStQ <- mkBypassFifo;
 `else
-    Fifo#(1, Tuple3#(SBIndex, Addr, Bit#(16))) reqStQ <- mkBypassFifo;
+    Fifo#(1, Tuple4#(SBIndex, Addr, Bit#(16), MemOp)) reqStQ <- mkBypassFifo;
 `endif
     // fifo for load result
     Fifo#(2, Tuple2#(LdQTag, MemResp)) forwardQ <- mkCFFifo;
@@ -637,7 +637,11 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
                 store_data: x.rVal2,
                 store_data_BE: origBE,
 `endif
-                misaligned: memAddrMisaligned(getAddr(x.vaddr), x.origBE),
+                misaligned: memAddrMisaligned(getAddr(x.vaddr), x.origBE)
+`ifdef Zicboz
+                && x.mem_func != Zero
+`endif
+                ,
                 capStore: isValidCap(x.rVal2) && x.origBE == DataMemAccess(unpack(~0)),
                 allowCapLoad: getHardPerms(x.rVal1).permitLoadCap && x.origBE == DataMemAccess(unpack(~0)),
                 capException: capChecksMem(x.rVal1, x.rVal2, x.cap_checks, x.mem_func, x.origBE),
@@ -703,7 +707,11 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
                 Lr: begin
                     cause = Valid(Exception(excLoadAccessFault));
                 end
-                Sc: begin
+                Sc
+`ifdef Zicboz
+                , Zero
+`endif
+                : begin
                     cause = Valid(Exception(excStoreAccessFault));
                 end
             endcase
@@ -723,7 +731,11 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
         end
         if (x.capException matches tagged Valid .c) cause = Valid(CapException(c));
         Bool access_at_commit = !isValid(cause) && (isMMIO || isLrScAmo);
-        Bool non_mmio_st_done = !isValid(cause) && !isMMIO && x.mem_func == St;
+        Bool non_mmio_st_done = !isValid(cause) && !isMMIO && (x.mem_func == St
+`ifdef Zicboz
+            || x.mem_func == Zero
+`endif
+        );
         inIfc.rob_setExecuted_doFinishMem(x.tag, getAddr(x.vaddr),
 `ifdef INCLUDE_TANDEM_VERIF
                                           store_data, store_data_BE,
@@ -836,7 +848,7 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
 `endif
         end
         else if(issRes == ToCache) begin
-            reqLdQ.enq(tuple4(zeroExtend(info.tag), info.paddr, info.shiftedBE == TagMemAccess, info.pcHash));
+            reqLdQ.enq(tuple5(zeroExtend(info.tag), info.paddr, info.shiftedBE == TagMemAccess, info.pcHash, info.func));
             // perf: load mem latency
             ldMemLatTimer.start(info.tag);
         end
@@ -1225,11 +1237,21 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
     // store has not been issued yet)
     rule doDeqStQ_St_Mem_issue(
         !isValid(lsqDeqSt.fault) &&
-        lsqDeqSt.memFunc == St && !lsqDeqSt.isMMIO
+        (lsqDeqSt.memFunc == St
+`ifdef Zicboz
+            || lsqDeqSt.memFunc == Zero
+`endif
+        ) && !lsqDeqSt.isMMIO
     );
         // send to mem
         Addr addr = lsqDeqSt.paddr;
-        reqStQ.enq(tuple2(addr, lsqDeqSt.pcHash));
+        reqStQ.enq(tuple3(addr, lsqDeqSt.pcHash,
+`ifdef Zicboz
+            lsqDeqSt.memFunc == St ? St : Zero
+`else
+            St
+`endif
+        ));
         // record waiting for store resp
         waitStRespQ.enq(WaitStResp {
             offset: getLineMemDataOffset(addr),
@@ -1588,17 +1610,17 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
     (* descending_urgency = "sendLdToMem, sendStToMem" *) // prioritize Ld over St
     rule sendStToMem;
 `ifdef TSO_MM
-        let {addr, pcHash} <- toGet(reqStQ).get;
+        let {addr, pcHash, op} <- toGet(reqStQ).get;
         DProcReqId id = 0;
 `else
-        let {sbIdx, addr, pcHash} <- toGet(reqStQ).get;
+        let {sbIdx, addr, pcHash, op} <- toGet(reqStQ).get;
         DProcReqId id = zeroExtend(sbIdx);
 `endif
         dMem.procReq.req(ProcRq {
             id: id,
             addr: addr,
             toState: M,
-            op: St,
+            op: op,
             byteEn: ?,
             data: ?,
             amoInst: ?,

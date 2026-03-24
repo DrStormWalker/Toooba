@@ -51,14 +51,23 @@ Bit#(3) memWU   = 3'b110;
 function Maybe#(MemInst) decodeMemInst(Instruction inst, Bool cap_mode, RiscVISASubset isa);
     Bool illegalInst = False;
     Opcode opcode = unpackOpcode(inst[6:0]);
-    let funct5 = inst[31:27];
-    let funct3 = inst[14:12];
+
+    let rd      = inst[11: 7]
+    let funct3  = inst[14:12];
+    let funct5  = inst[31:27];
+    let funct12 = inst[31:20]
 
     // mem_func + amo_func
     MemFunc mem_func = Ld;
     AmoFunc amo_func = None;
-    if (opcode == opcLoad || opcode == opcLoadFp || opcode == opcMiscMem) begin
+    if (opcode == opcLoad || opcode == opcLoadFp) begin
         mem_func = Ld;
+    end else if (opcode == opcMiscMem) begin
+        if (funct3 == fnLC && rd == 5'b0 && funct12 == 12'h04) begin
+            mem_func = Zero;
+        end else begin
+            mem_func = Ld;
+        end
     end else if (opcode == opcStore || opcode == opcStoreFp) begin
         mem_func = St;
     end else if (opcode == opcAmo) begin
@@ -127,33 +136,34 @@ function Maybe#(MemInst) decodeMemInst(Instruction inst, Bool cap_mode, RiscVISA
     // byteEn
     // TODO: Some combinations of operations and byteEn's are illegal.
     // They should be detected here.
-    MemDataByteEn byteEn = (capWidth) ? replicate(True):replicate(False);
+    MemDataByteEn memByteEn = (capWidth) ? replicate(True):replicate(False);
     if (!capWidth) begin
         case (funct3)
-            memB, memBU : byteEn[0] = True;
+            memB, memBU : memByteEn[0] = True;
             memH, memHU : begin
-                              byteEn[0] = True;
-                              byteEn[1] = True;
+                              memByteEn[0] = True;
+                              memByteEn[1] = True;
                           end
             memW, memWU : begin
-                              byteEn[0] = True;
-                              byteEn[1] = True;
-                              byteEn[2] = True;
-                              byteEn[3] = True;
+                              memByteEn[0] = True;
+                              memByteEn[1] = True;
+                              memByteEn[2] = True;
+                              memByteEn[3] = True;
                           end
             memD        : begin
-                              byteEn[0] = True;
-                              byteEn[1] = True;
-                              byteEn[2] = True;
-                              byteEn[3] = True;
-                              byteEn[4] = True;
-                              byteEn[5] = True;
-                              byteEn[6] = True;
-                              byteEn[7] = True;
+                              memByteEn[0] = True;
+                              memByteEn[1] = True;
+                              memByteEn[2] = True;
+                              memByteEn[3] = True;
+                              memByteEn[4] = True;
+                              memByteEn[5] = True;
+                              memByteEn[6] = True;
+                              memByteEn[7] = True;
                           end
             default     : illegalInst = True;
         endcase
     end
+    ByteOrTagEn byteOrTagEn = mem_func == Zero ? TagMemAccess : DataMemAccess(byteEn);
 
     // aq + rl
     Bool aq = False;
@@ -171,7 +181,7 @@ function Maybe#(MemInst) decodeMemInst(Instruction inst, Bool cap_mode, RiscVISA
                                 mem_func: mem_func,
                                 amo_func: amo_func,
                                 unsignedLd: unsignedLd,
-                                byteOrTagEn: DataMemAccess(byteEn),
+                                byteOrTagEn: byteOrTagEn,
                                 aq: aq,
                                 rl: rl,
                                 reg_bounds: cap_mode } );
@@ -184,7 +194,15 @@ function Maybe#(MemInst) decodeExplicitBoundsMemInst(Instruction inst);
     // decode case, and therefore does not attempt to return sensible
     // defaults when the instruction is not a capability memory operation.
     Bool illegalInst = False;
-    Bit#(7) funct7 = inst[31:25];
+
+    Opcode opcode = unpackOpcode(inst[6:0])
+
+    let rd      = inst[11: 7];
+    let funct3  = inst[14:12];
+    let funct5  = inst[31:27];
+    let funct7  = inst[31:25];
+    let funct12 = inst[13:20];
+    
     Bit#(5) mem_code = (funct7==f7_cap_Loads) ? inst[24:20]:inst[11:7];
     Bool amo = unpack(mem_code[4]);
     Bool bounds_from_register = unpack(mem_code[3]);
@@ -246,6 +264,7 @@ function Maybe#(MemInst) decodeExplicitBoundsMemInst(Instruction inst);
                   end
         endcase
     end
+    ByteOrTagEn byteOrTagEn = mem_func == Zero ? TagMemAccess : DataMemAccess(byteEn);
 
     if (illegalInst) begin
         return tagged Invalid;
@@ -254,7 +273,7 @@ function Maybe#(MemInst) decodeExplicitBoundsMemInst(Instruction inst);
                                 mem_func: mem_func,
                                 amo_func: amo_func,
                                 unsignedLd: unsignedLd,
-                                byteOrTagEn: DataMemAccess(byteEn),
+                                byteOrTagEn: byteOrTagEn,
                                 aq: amo,
                                 rl: amo,
                                 reg_bounds: bounds_from_register} );
@@ -313,6 +332,8 @@ function DecodeResult decode(Instruction inst, Bool cap_mode);
     Bool rl       =       unpack(inst[ 25 ]);
     // For "xCHERI" ISA extension
     let funct5rs2 =              inst[ 24 : 20 ];
+    // For "Zicboz" ISA extension
+    let funct12   =              inst[ 31 : 20 ];
 
     // For floating point instructions: is the fmt field in the current isa
     Bool fpFmtInISA = (isa.f && fmt == fmtS) || (isa.d && fmt == fmtD);
@@ -851,7 +872,17 @@ function DecodeResult decode(Instruction inst, Bool cap_mode);
                         dInst.execFunc = tagged Other;
                     end
                 end
-                fnLC: begin
+                fnLC: if (rd == 5'b0 && funct12 == 12'h04) begin
+                    dInst.iType = Cbo;
+                    legalInst = True;
+                    dInst.execFunc = tagged Mem mem_inst.Valid;
+                    regs.dst  = Invalid;
+                    regs.src1 = Valid(tagged Gpr rs1);
+                    regs.src2 = Invalid;
+                    dInst.imm = Invalid;
+                    dInst.csr = tagged Invalid;
+                    dInst.capChecks = memCapChecks(cap_mode);
+                end else begin
                     dInst.iType = Ld;
                     legalInst = isValid(mem_inst);
                     dInst.execFunc = tagged Mem mem_inst.Valid;

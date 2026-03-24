@@ -220,6 +220,9 @@ module mkL1Bank#(
     Count#(Data) ldMissCnt <- mkCount(0);
     Count#(Data) stMissCnt <- mkCount(0);
     Count#(Data) amoMissCnt <- mkCount(0);
+`ifdef Zicboz
+    Count#(Data) zeroCnt <- mkCount(0);
+`endif
     Count#(Data) ldMissLat <- mkCount(0);
     Count#(Data) stMissLat <- mkCount(0);
     Count#(Data) amoMissLat <- mkCount(0);
@@ -234,6 +237,9 @@ action
         case(op)
             Ld: ldCnt.incr(1);
             St: stCnt.incr(1);
+`ifdef Zicboz
+            Zero: zeroCnt.incr(1);
+`endif
             Lr, Sc, Amo: amoCnt.incr(1);
         endcase
     end
@@ -243,6 +249,9 @@ action
     case(op)
         Ld: events.evt_LD = 1;
         St: events.evt_ST = 1;
+`ifdef
+        Zero: events.evt_ZERO = 1;
+`endif
         Lr, Sc, Amo: events.evt_AMO = 1;
     endcase
     perf_events[0] <= events;
@@ -265,6 +274,11 @@ action
                 stMissLat.incr(zeroExtend(lat));
                 stMissCnt.incr(1);
             end
+`ifdef Zicboz
+            Zero: begin
+                // Cannot miss cache
+            end
+`endif
             Lr, Sc, Amo: begin
                 amoMissLat.incr(zeroExtend(lat));
                 amoMissCnt.incr(1);
@@ -283,6 +297,11 @@ action
             events.evt_ST_MISS_LAT = saturating_truncate(lat);
             events.evt_ST_MISS = 1;
         end
+`ifdef Zicboz
+        Zero: begin
+            // Cannot miss cache
+        end
+`endif
         Lr, Sc, Amo: begin
             events.evt_AMO_MISS_LAT = saturating_truncate(lat);
             events.evt_AMO_MISS = 1;
@@ -625,6 +644,12 @@ endfunction
                 // calculate new data to write
                 newLine = getUpdatedLine(curLine, be, wrLine);
             end
+`ifdef Zicboz
+            Zero: begin
+                let {be, wrLine} <- procResp.respSt(req.id);
+                newLine = memTaggedDataVectorToCline(replicate(0));
+            end
+`endif
             default: begin
                 doAssert(False, "unknown mem op");
             end
@@ -781,6 +806,29 @@ endfunction
         endaction
         endfunction
 
+`ifdef Zicboz
+        function Action cRqZero;
+        action
+            let {be, wrLine} <- procResp.respSt(procRq.id);
+
+            Line newLine = memTaggedDataVectorToCline(replicate(0));
+
+            pipeline.deqWrite(pipeOutSucc, RamData {
+                info: CacheInfo {
+                    tag: getTag(procRq.addr),
+                    cs: M,
+                    dir: ?,
+                    owner: pipeOutSucc,
+                    other: ?
+                },
+                line: newLine,
+            }, isValid(pipeOutSucc) ? pipeOutNextInQueue : pipeOutSecondInQueue, True);
+
+            cRqMshr.pipelineResp.releaseEntry(n);
+        endaction
+        endfunction
+`endif
+
         // function to process cRq miss without replacement (MSHR slot may have garbage)
         function Action cRqMissNoReplacement;
         action
@@ -792,67 +840,84 @@ endfunction
             doAssert(!cSlot.waitP && !enoughCacheState(ram.info.cs, procRq.toState),
                 "waitP must be false and cs must not be enough"
             );
-            // Thus we must send req to parent
-            // XXX first send to a temp indexQ to avoid conflict, then merge to rqToPIndexQ later
-            rqToPIndexQ_pipelineResp.enq(n);
-            // update mshr
-            cRqMshr.pipelineResp.setStateSlot(n, WaitSt, L1CRqSlot {
-                way: pipeOut.way, // use way from pipeline
-                cs: ram.info.cs, // record cs for future rqToPIndexQ.deq
-                repTag: ?, // no replacement
-                waitP: True // we have req parent, so waiting
-            });
-            // deq pipeline & set owner, tag
-            pipeline.deqWrite(Invalid, RamData {
-                info: CacheInfo {
-                    tag: getTag(procRq.addr), // tag may be garbage if cs == I
-                    cs: ram.info.cs,
-                    dir: ?,
-                    owner: Valid (n), // owner is req itself
-                    other: ?
-                },
-                line: ram.line
-            }, pipeOutNextInQueue, False);
-            if (!cRqIsPrefetch[n]) begin
-                prefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
-                llcPrefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
+
+`ifdef Zicboz
+            if (procRq.op == Zero) begin
+                cRqZero;
+            end else begin
+`endif
+                // Thus we must send req to parent
+                // XXX first send to a temp indexQ to avoid conflict, then merge to rqToPIndexQ later
+                rqToPIndexQ_pipelineResp.enq(n);
+                // update mshr
+                cRqMshr.pipelineResp.setStateSlot(n, WaitSt, L1CRqSlot {
+                    way: pipeOut.way, // use way from pipeline
+                    cs: ram.info.cs, // record cs for future rqToPIndexQ.deq
+                    repTag: ?, // no replacement
+                    waitP: True // we have req parent, so waiting
+                });
+                // deq pipeline & set owner, tag
+                pipeline.deqWrite(Invalid, RamData {
+                    info: CacheInfo {
+                        tag: getTag(procRq.addr), // tag may be garbage if cs == I
+                        cs: ram.info.cs,
+                        dir: ?,
+                        owner: Valid (n), // owner is req itself
+                        other: ?
+                    },
+                    line: ram.line
+                }, pipeOutNextInQueue, False);
+                if (!cRqIsPrefetch[n]) begin
+                    prefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
+                    llcPrefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
+                end
+`ifdef Zicboz
             end
+`endif`
         endaction
         endfunction
 
         // function to do replacement for cRq
         function Action cRqReplacement;
         action
-            // deq pipeline
-            pipeline.deqWrite(Invalid, RamData {
-                info: CacheInfo {
-                    tag: getTag(procRq.addr), // set to req tag (old tag is replaced right now)
+`ifdef Zicboz
+            if (procRq.op == Zero) begin
+                cRqZero;
+            end else begin
+`endif
+                // deq pipeline
+                pipeline.deqWrite(Invalid, RamData {
+                    info: CacheInfo {
+                        tag: getTag(procRq.addr), // set to req tag (old tag is replaced right now)
+                        cs: I,
+                        dir: ?,
+                        owner: Valid (n), // owner is req itself
+                        other: ?
+                    },
+                    line: ? // data is no longer used
+                }, pipeOutNextInQueue, False);
+                // update MSHR: may save replaced line data
+                cRqMshr.pipelineResp.setStateSlot(n, WaitNewTag, L1CRqSlot {
+                    way: pipeOut.way, // use way from pipeline
                     cs: I,
-                    dir: ?,
-                    owner: Valid (n), // owner is req itself
-                    other: ?
-                },
-                line: ? // data is no longer used
-            }, pipeOutNextInQueue, False);
-            // update MSHR: may save replaced line data
-            cRqMshr.pipelineResp.setStateSlot(n, WaitNewTag, L1CRqSlot {
-                way: pipeOut.way, // use way from pipeline
-                cs: I,
-                repTag: ram.info.tag, // tag being replaced
-                waitP: False // we send req to parent later (when resp to parent is sent)
-            });
-            cRqMshr.pipelineResp.setData(n, ram.info.cs == M ? Valid (ram.line) : Invalid);
-            if (!cRqIsPrefetch[n]) begin
-                prefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
-                llcPrefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
+                    repTag: ram.info.tag, // tag being replaced
+                    waitP: False // we send req to parent later (when resp to parent is sent)
+                });
+                cRqMshr.pipelineResp.setData(n, ram.info.cs == M ? Valid (ram.line) : Invalid);
+                if (!cRqIsPrefetch[n]) begin
+                    prefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
+                    llcPrefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
+                end
+                // send replacement resp to parent
+                rsToPIndexQ.enq(CRq (n));
+                // reset link addr
+                LineAddr repLineAddr = getLineAddr({ram.info.tag, truncate(procRq.addr)}); // index & bank are from procRq
+                if(linkAddr == Valid (repLineAddr)) begin
+                    linkAddr <= Invalid;
+                end
+`ifdef Zicboz
             end
-            // send replacement resp to parent
-            rsToPIndexQ.enq(CRq (n));
-            // reset link addr
-            LineAddr repLineAddr = getLineAddr({ram.info.tag, truncate(procRq.addr)}); // index & bank are from procRq
-            if(linkAddr == Valid (repLineAddr)) begin
-                linkAddr <= Invalid;
-            end
+`endif
         endaction
         endfunction
 

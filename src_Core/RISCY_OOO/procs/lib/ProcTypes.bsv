@@ -285,6 +285,9 @@ typedef enum {
     Fpu,
     Csr,
     Scr,
+`ifdef Zicboz
+    Cbo,
+`endif
     Fence,
     FenceI, SFence,
     Ecall, Ebreak,

@@ -216,7 +216,11 @@ typedef struct {
     Bool             waitWPResp;
 } LdQEntry deriving (Bits, Eq, FShow);
 
-typedef enum {St, Sc, Amo, Fence} StQMemFunc deriving(Bits, Eq, FShow);
+typedef enum {St, Sc, Amo, Fence
+`ifdef Zicboz
+    , Zero
+`endif
+} StQMemFunc deriving(Bits, Eq, FShow);
 
 // SQ holds St, Sc and Amo. This type is for documentation purpose, it is not
 // really used.
@@ -543,6 +547,9 @@ function StQMemFunc getStQMemFunc(MemFunc f);
         Sc: (Sc);
         Amo: (Amo);
         Fence: (Fence);
+`ifdef Zicboz
+        Zero: (Zero);
+`endif
         default: ?;
     endcase);
 endfunction
@@ -556,7 +563,11 @@ endfunction
 
 function Bool isStQMemFunc(MemFunc f);
     return (case(f)
-        St, Sc, Amo, Fence: (True);
+        St, Sc, Amo, Fence
+`ifdef Zicboz
+        , Zero
+`endif
+        : (True);
         default: (False);
     endcase);
 endfunction
@@ -852,7 +863,7 @@ module mkSplitLSQ(SplitLSQ);
     Vector#(StQSize, Reg#(InstTag))                 st_instTag   <- replicateM(mkRegU);
     Vector#(StQSize, Reg#(StQMemFunc))              st_memFunc   <- replicateM(mkRegU);
     Vector#(StQSize, Reg#(AmoFunc))                 st_amoFunc   <- replicateM(mkRegU);
-    Vector#(StQSize, Reg#(MemDataByteEn))           st_byteEn    <- replicateM(mkRegU);
+    Vector#(StQSize, Reg#(ByteOrTagEn))             st_byteEn    <- replicateM(mkRegU);
     Vector#(StQSize, Reg#(Bool))                    st_acq       <- replicateM(mkRegU);
     Vector#(StQSize, Reg#(Bool))                    st_rel       <- replicateM(mkRegU);
     Vector#(StQSize, Reg#(Maybe#(PhyDst)))          st_dst       <- replicateM(mkRegU);
@@ -1383,7 +1394,7 @@ module mkSplitLSQ(SplitLSQ);
     method ByteOrTagEn getOrigBE(LdStQTag t);
         return (case(t) matches
             tagged Ld .tag: (ld_byteOrTagEn[tag]);
-            tagged St .tag: (DataMemAccess(st_byteEn[tag]));
+            tagged St .tag: (st_byteEn[tag]);
             default: ?;
         endcase);
     endmethod
@@ -1490,7 +1501,7 @@ module mkSplitLSQ(SplitLSQ);
         st_instTag[st_enqP] <= inst_tag;
         st_memFunc[st_enqP] <= getStQMemFunc(mem_inst.mem_func);
         st_amoFunc[st_enqP] <= mem_inst.amo_func;
-        st_byteEn[st_enqP] <= mem_inst.byteOrTagEn.DataMemAccess;
+        st_byteEn[st_enqP] <= mem_inst.byteOrTagEn;
         st_acq[st_enqP] <= mem_inst.aq;
         st_rel[st_enqP] <= mem_inst.rl;
         st_dst[st_enqP] <= dst;
@@ -1791,6 +1802,28 @@ module mkSplitLSQ(SplitLSQ);
                         ld_depStQDeq_issue[tag] <= Valid (stTag);
                     end
                 end
+`ifdef Zicboz
+                Zero: begin
+                    // Should always be true
+                    // if (be1CoverBe2(TagMemAccess, shift_be)) begin
+                        // Zero covers the issuing load, forward
+                        issRes = Forward (LSQForwardResult {
+                            dst: ld_dst[tag],
+                            data: MemTaggedData {
+                                tag: False,
+                                data: unpack(0),
+                            },
+                        });
+                        // Set executing and record readFrom
+                        ld_executing_issue[tag] <= True;
+                        ld_readFrom_issue[tag] <= Valid (stTag);
+                    // end else begin
+                        // cannot forward, stall
+                        issRes = Stall (StQ);
+                        ld_depStQDeq_issue[tag] <= Valid (stTag);
+                    // end
+                end
+`endif
                 default: begin
                     doAssert(False, "unknown st mem func");
                 end
@@ -1912,6 +1945,28 @@ module mkSplitLSQ(SplitLSQ);
                             ld_depStQDeq_issue[tag] <= matchStTag;
                         end
                     end
+`ifdef Zicboz
+                    Zero: begin
+                        // Should always be true
+                        // if (be1CoverBe2(TagMemAccess, shift_be)) begin
+                            // Zero covers the issuing load, forward
+                            issRes = Forward (LSQForwardResult {
+                                dst: ld_dst[tag],
+                                data: MemTaggedData {
+                                    tag: False,
+                                    data: unpack(0),
+                                },
+                            });
+                            // Set executing and record readFrom
+                            ld_executing_issue[tag] <= True;
+                            ld_readFrom_issue[tag] <= Valid (stTag);
+                        // end else begin
+                            // cannot forward, stall
+                            issRes = Stall (StQ);
+                            ld_depStQDeq_issue[tag] <= Valid (stTag);
+                        // end
+                    end
+`endif
                     default: begin
                         doAssert(False, "unknown st mem func");
                     end
@@ -2110,7 +2165,7 @@ module mkSplitLSQ(SplitLSQ);
 
         // sanity check
         if(!isValid(st_fault_deqSt[deqP])) begin
-            doAssert(checkAddrAlign(st_paddr_deqSt[deqP], DataMemAccess(st_byteEn[deqP])),
+            doAssert(checkAddrAlign(st_paddr_deqSt[deqP], st_byteEn[deqP]) || st_memFunc[deqP] ==  Zero,
                      "addr BE should be naturally aligned");
             doAssert(st_specBits_deqSt[deqP] == 0,
                      "must have zero spec bits");

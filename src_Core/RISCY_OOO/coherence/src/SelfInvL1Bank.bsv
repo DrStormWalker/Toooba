@@ -224,6 +224,10 @@ module mkSelfInvL1Bank#(
     Count#(Data) ldMissCnt <- mkCount(0);
     Count#(Data) stMissCnt <- mkCount(0);
     Count#(Data) amoMissCnt <- mkCount(0);
+`ifdef Zicboz
+    Count#(Data) zeroCnt <- mkCount(0);
+`endif
+    Count#(Data) 
     Count#(Data) ldMissLat <- mkCount(0);
     Count#(Data) stMissLat <- mkCount(0);
     Count#(Data) amoMissLat <- mkCount(0);
@@ -238,6 +242,9 @@ module mkSelfInvL1Bank#(
             case(op)
                 Ld: ldCnt.incr(1);
                 St: stCnt.incr(1);
+`ifdef Zicboz
+                Zero: zeroCnt.incr(1);
+`endif
                 Lr, Sc, Amo: amoCnt.incr(1);
             endcase
         end
@@ -256,6 +263,9 @@ module mkSelfInvL1Bank#(
                 St: begin
                     stMissLat.incr(zeroExtend(lat));
                     stMissCnt.incr(1);
+                end
+                Zero: begin
+                    // Cannot miss cache
                 end
                 Lr, Sc, Amo: begin
                     amoMissLat.incr(zeroExtend(lat));

@@ -12,7 +12,7 @@
 	url = https://github.com/CTSRD-CHERI/cheri-cap-lib.git
 [submodule "libs/RISCV_HPM_Events"]
 	path = libs/RISCV_HPM_Events
-	url = https://github.com/CTSRD-CHERI/RISCV_HPM_Events.git
+	url = https://github.com/DrStormWalker/RISCV_HPM_Events.git
 [submodule "libs/WindCoreInterface"]
 	path = libs/WindCoreInterface
 	url = https://github.com/CTSRD-CHERI/WindCoreInterface.git
