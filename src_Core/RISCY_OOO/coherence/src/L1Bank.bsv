@@ -158,7 +158,12 @@ module mkL1Bank#(
     Add#(TAdd#(tagSz, indexSz), TAdd#(lgBankNum, LgLineSzBytes), AddrSz)
 );
 
-    Bool verbose = True;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
 
     L1CRqMshr#(cRqNum, indexT, wayT, tagT, procRqT) cRqMshr <- mkL1CRqMshrLocal;
 

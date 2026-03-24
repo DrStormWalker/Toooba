@@ -143,7 +143,12 @@ typedef union tagged {
 
 (* synthesize *)
 module mkL2Tlb(L2Tlb::L2Tlb);
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
    
     // set associative TLB for 4KB pages
     L2SetAssocTlb tlb4KB <- mkL2SetAssocTlb;

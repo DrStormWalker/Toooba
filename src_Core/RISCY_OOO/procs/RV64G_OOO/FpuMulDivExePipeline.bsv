@@ -155,7 +155,12 @@ interface FpuMulDivExePipeline;
 endinterface
 
 module mkFpuMulDivExePipeline#(FpuMulDivExeInput inIfc)(FpuMulDivExePipeline);
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
 
     // fpu mul div reservation station
     ReservationStationFpuMulDiv rsFpuMulDiv <- mkReservationStationFpuMulDiv;

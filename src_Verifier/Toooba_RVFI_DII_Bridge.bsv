@@ -67,7 +67,12 @@ module mkTooobaRVFIDIIBridge(Toooba_RVFI_DII_Bridge_IFC);
     // Request ID
     FIFO#(Dii_Parcel_Id) seq_req_first <- mkFIFO;
 
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
 
     function Bool validReport(RVFI_DII_Execution#(DataSz,DataSz) trace);
         return (trace.rvfi_insn != dii_nop);

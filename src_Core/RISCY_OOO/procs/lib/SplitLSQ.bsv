@@ -648,7 +648,12 @@ module mkSplitLSQ(SplitLSQ);
     // request faults), we should first copy the MMIO request to a reg, and
     // then kill using the info in reg.
 
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
 
     // we may simplify things in case of single core
     Bool multicore = valueof(CoreNum) > 1;

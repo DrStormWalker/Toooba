@@ -131,7 +131,12 @@ module mkLLCDmaConnect #( DmaServer#(LLCDmaReqId) llc
                , Wd_AW_User_Periph, Wd_W_User_Periph, Wd_B_User_Periph
                , Wd_AR_User_Periph, Wd_R_User_Periph ))
   provisos (Alias #(dmaRqT, DmaRq #(LLCDmaReqId)));
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
 
    Integer verbosity = 0;
 

@@ -219,7 +219,12 @@ module mkLLCRqMshr#(
     Bits#(reqT, _reqSz)
 );
 
-   Bool verbose = False;
+   Bool verbose =
+   `ifdef VERBOSE
+       True;
+   `else
+       False;
+   `endif
 
     slotT slotInitVal = getLLCRqSlotInitVal(dirPendInitVal);
 

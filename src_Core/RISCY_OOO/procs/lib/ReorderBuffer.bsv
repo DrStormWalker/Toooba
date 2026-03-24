@@ -691,7 +691,12 @@ module mkSupReorderBuffer#(
     Add#(1, a__, aluExeNum), Add#(1, b__, fpuMulDivExeNum)
 );
 
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
 
     // doCommit rule: deq < wrongSpec (overwrite deq in doCommit) < doRenaming rule: enq
     Integer valid_deq_port = 0;

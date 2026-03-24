@@ -60,7 +60,12 @@ module mkXBar#(
     Bits#(dstDataT, _dstDataSz),
     FShow#(dstDataT)
 );
-   Bool verbose = False;
+   Bool verbose =
+   `ifdef VERBOSE
+       True;
+   `else
+       False;
+   `endif
 
     // proposed data transfer by each src
     Vector#(srcNum, Ehr#(2, Maybe#(dstIdxT))) propDstIdx <- replicateM(mkEhr(Invalid));

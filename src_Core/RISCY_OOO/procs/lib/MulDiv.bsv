@@ -131,7 +131,12 @@ endmodule
 
 // don't synthesize to optimize guard of exec
 module mkMulDivExec(MulDivExec);
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
 
     XilinxIntMul#(void) mulUnit <- mkXilinxIntMul;
     XilinxIntDiv#(void) divUnit <- mkXilinxIntDiv;

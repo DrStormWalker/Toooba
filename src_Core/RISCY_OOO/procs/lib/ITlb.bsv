@@ -105,7 +105,12 @@ endmodule
 
 (* synthesize *)
 module mkITlb(ITlb::ITlb);
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
 
     // TLB array
     ITlbArray tlb <- mkITlbArray;

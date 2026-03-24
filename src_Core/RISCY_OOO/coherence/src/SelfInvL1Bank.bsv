@@ -175,7 +175,12 @@ module mkSelfInvL1Bank#(
     Add#(TAdd#(tagSz, indexSz), TAdd#(lgBankNum, LgLineSzBytes), AddrSz)
 );
 
-   Bool verbose = False;
+   Bool verbose =
+   `ifdef VERBOSE
+       True;
+   `else
+       False;
+   `endif
 
     L1CRqMshr#(cRqNum, wayT, tagT, procRqT) cRqMshr <- mkL1CRqMshrLocal;
 

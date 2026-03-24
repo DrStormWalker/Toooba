@@ -267,7 +267,12 @@ module mkSelfInvL1Pipe(
     Add#(tagSz, b__, AddrSz)
 );
 
-   Bool verbose = False;
+   Bool verbose =
+   `ifdef VERBOSE
+       True;
+   `else
+       False;
+   `endif
 
     // info RAM
     Vector#(wayNum, CacheInfoArray#(indexT, tagT, ownerT, otherT)) infoArray <- replicateM(mkCacheInfoArray);

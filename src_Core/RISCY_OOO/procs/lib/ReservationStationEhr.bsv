@@ -85,7 +85,12 @@ module mkReservationStation#(Bool lazySched, Bool lazyEnq, Bool countValid)(
     Add#(1, b__, size)
 );
 
-   Bool verbose = False;
+   Bool verbose =
+   `ifdef VERBOSE
+       True;
+   `else
+       False;
+   `endif
 
     Integer valid_wrongSpec_port = 0;
     Integer valid_dispatch_port = 0; // write valid

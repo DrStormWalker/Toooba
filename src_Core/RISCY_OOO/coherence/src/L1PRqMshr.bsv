@@ -106,7 +106,12 @@ module mkL1PRqMshrSafe(
     Alias#(pRqIndexT, Bit#(TLog#(pRqNum)))
 );
 
-   Bool verbose = False;
+   Bool verbose =
+   `ifdef VERBOSE
+       True;
+   `else
+       False;
+   `endif
 
     // EHR port
     // We put pipelineResp < transfer to cater for deq < enq of cache pipeline

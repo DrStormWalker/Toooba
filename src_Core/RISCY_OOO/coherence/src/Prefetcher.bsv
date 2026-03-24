@@ -65,7 +65,12 @@ module mkAlwaysRequestPrefetcher(Prefetcher);
 endmodule
 
 module mkPrintPrefetcher(Prefetcher);
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     method Action reportAccess(Addr addr, HitOrMiss hitMiss);
         if (hitMiss == HIT) begin
             if (verbose) $display("%t PrintPrefetcher report HIT %h", $time, addr);
@@ -84,7 +89,12 @@ module mkNextLineOnMissPrefetcher(Prefetcher)
         NumAlias#(nextLinesOnMiss, 1),
         Alias#(rqCntT, Bit#(TLog#(TAdd#(nextLinesOnMiss, 1))))
     );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     Reg#(Addr) lastMissAddr <- mkReg(0);
     Reg#(rqCntT) sentRequestCounter <- mkReg(fromInteger(valueOf(nextLinesOnMiss)));
 
@@ -113,7 +123,12 @@ module mkNextLineOnAllPrefetcher(Prefetcher)
         NumAlias#(nextLinesOnAccess, 3),
         Alias#(rqCntT, Bit#(TLog#(TAdd#(nextLinesOnAccess, 1))))
     );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     Reg#(Addr) lastAccessAddr <- mkReg(0);
     Reg#(rqCntT) sentRequestCounter <- mkReg(fromInteger(valueOf(nextLinesOnAccess)));
 
@@ -140,7 +155,12 @@ module mkNextLineOnAllPrefetcher(Prefetcher)
 endmodule
 
 module mkSingleWindowPrefetcher(Prefetcher);
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     Integer cacheLinesInRange = 2;
     Reg#(LineAddr) rangeEnd <- mkReg(0); //Points to one CLine after end of range
     Reg#(LineAddr) nextToAsk <- mkReg(0);
@@ -170,7 +190,12 @@ module mkSingleWindowPrefetcher(Prefetcher);
 endmodule
 
 module mkSingleWindowL1LLPrefetcher(Prefetcher);
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     Integer cacheLinesInRange = 2;
     Reg#(LineAddr) rangeEnd <- mkReg(0); //Points to one CLine after end of range
     Reg#(LineAddr) nextToAsk <- mkReg(0);
@@ -209,7 +234,12 @@ provisos(
     NumAlias#(numWindows, 4),
     Alias#(windowIdxT, Bit#(TLog#(numWindows)))
 );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     Integer cacheLinesInRange = 2;
     Vector#(numWindows, Reg#(StreamEntry)) streams 
         <- replicateM(mkReg(StreamEntry {rangeEnd: '0, nextToAsk: '0}));
@@ -310,7 +340,12 @@ provisos(
         <- replicateM(mkReg(StreamEntry {rangeEnd: '0, nextToAsk: '0}));
     Vector#(numWindows, Reg#(windowIdxT)) shiftReg <- genWithM(compose(mkReg, fromInteger));
 
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
 
     function Action moveWindowToFront(windowIdxT window) = 
     action
@@ -417,7 +452,12 @@ module mkTargetTable(TargetTable#(narrowTableSize, wideTableSize)) provisos
     Add#(c__, TLog#(wideTableSize), 32),
     Add#(d__, TLog#(wideTableSize), 58)
 );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     Vector#(narrowTableSize, Ehr#(2, Maybe#(narrowTargetEntryT))) narrowTable <- replicateM(mkEhr(Invalid));
     Vector#(wideTableSize, Ehr#(2, Maybe#(wideTargetEntryT))) wideTable <- replicateM(mkEhr(Invalid));
     method Action set(LineAddr prevAddr, LineAddr currAddr);
@@ -481,7 +521,12 @@ module mkTargetTableBRAM(TargetTableBRAM#(narrowTableSize, wideTableSize)) provi
     Add#(c__, TLog#(wideTableSize), 32),
     Add#(d__, TLog#(wideTableSize), 58)
 );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     RWBramCore#(Bit#(narrowTableIdxBits), Maybe#(narrowTargetEntryT)) narrowTable <- mkRWBramCore;
     RWBramCore#(Bit#(wideTableIdxBits), Maybe#(wideTargetEntryT)) wideTable <- mkRWBramCore;
     Reg#(LineAddr) readReqLineAddr <- mkReg(?); 
@@ -569,7 +614,12 @@ module mkTargetTableDouble(TargetTableDouble#(narrowTableSize, wideTableSize)) p
     Add#(d__, TLog#(wideTableSize), 58)
 );
 
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
 
     //on any request, read all 4 tables. get prefetches. if it's a miss save both MRU entries.
     //on a miss, perform a regular table write to the MRU table. if it's a narrow write, write the old MRU narrow entry to the LRU narrow table.
@@ -769,7 +819,12 @@ module mkBRAMSingleWindowTargetPrefetcher(Prefetcher) provisos
 (
     NumAlias#(numLastRequests, 16)
 );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     Integer cacheLinesInRange = 1;
     Reg#(LineAddr) rangeEnd <- mkReg(0); //Points to one CLine after end of range
     Reg#(LineAddr) nextToAsk <- mkReg(0);
@@ -858,7 +913,12 @@ provisos(
     FIFOF#(LineAddr) targetTableReadResp <- mkBypassFIFOF;
     Reg#(Vector#(numLastRequests, Bit#(32))) lastTargetRequests <- mkReg(replicate(0));
 
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
 
     rule sendReadReq;
         if (!elem(hash(lastChildRequest), lastTargetRequests)) begin 
@@ -984,7 +1044,12 @@ module mkBRAMMarkovPrefetcher(Prefetcher) provisos
     NumAlias#(maxChainLength, 2),
     Alias#(chainLengthT, Bit#(TLog#(TAdd#(maxChainLength,1))))
 );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     Reg#(LineAddr) lastLastChildRequest <- mkReg(0);
     Reg#(LineAddr) lastChildRequest <- mkReg(0);
     TargetTableBRAM#(65536, 4096) targetTable <- mkTargetTableBRAM;
@@ -1050,7 +1115,12 @@ module mkBRAMMarkovOnHitPrefetcher(Prefetcher) provisos
     NumAlias#(numLastRequests, 32),
     Alias#(chainLengthT, Bit#(TLog#(TAdd#(maxChainLength,1))))
 );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     Reg#(LineAddr) lastLastChildRequest <- mkReg(0);
     Reg#(LineAddr) lastChildRequest <- mkReg(0);
     Reg#(Vector#(numLastRequests, Bit#(32))) lastAddrRequests <- mkReg(replicate(0));
@@ -1118,7 +1188,12 @@ module mkMarkovOnHit2Prefetcher(Prefetcher) provisos
     NumAlias#(numLastRequests, 32),
     Alias#(chainLengthT, Bit#(TLog#(TAdd#(maxChainLength,1))))
 );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     Reg#(LineAddr) lastChildRequest <- mkReg(0);
     Reg#(Vector#(numLastRequests, Bit#(32))) lastAddrRequests <- mkReg(replicate(0));
     TargetTableDouble#(65536, 4096) targetTable <- mkTargetTableDouble;
@@ -1173,7 +1248,12 @@ module mkBlockPrefetcher(Prefetcher) provisos (
     NumAlias#(numLinesEachWay, 1),
     Alias#(lineCountT, Bit#(TLog#(TAdd#(numLinesEachWay, 1))))
 );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     Reg#(Bool) nextIsForward <- mkReg(?);
     Reg#(LineAddr) prefetchAround <- mkReg(?);
     Reg#(lineCountT) linesEachWayPrefetched <- mkReg(fromInteger(valueOf(numLinesEachWay)));
@@ -1230,7 +1310,12 @@ module mkDoNothingPCPrefetcher(PCPrefetcher);
 endmodule
 
 module mkPrintPCPrefetcher(PCPrefetcher);
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     method Action reportAccess(Addr addr, Bit#(16) pcHash, HitOrMiss hitMiss);
         if (hitMiss == HIT)
             if (verbose) $display("%t PCPrefetcher report HIT %h", $time, addr);
@@ -1259,7 +1344,12 @@ provisos(
     NumAlias#(cLinesAheadToPrefetch, 2), 
     Alias#(strideTableIndexT, Bit#(TLog#(strideTableSize)))
     );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     RWBramCore#(strideTableIndexT, StrideEntry) strideTable <- mkRWBramCoreForwarded;
     FIFOF#(Tuple3#(Addr, Bit#(16), HitOrMiss)) memAccesses <- mkSizedBypassFIFOF(8);
     Reg#(Tuple3#(Addr, Bit#(16), HitOrMiss)) rdRespEntry <- mkReg(?);
@@ -1413,7 +1503,12 @@ provisos(
     NumAlias#(cLinesAheadToPrefetch, 2), // TODO fetch more if have repeatedly hit an entry, and if stride big
     Alias#(strideTableIndexT, Bit#(TLog#(strideTableSize)))
     );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     RWBramCore#(strideTableIndexT, StrideEntry2) strideTable <- mkRWBramCoreForwarded;
     FIFOF#(Tuple3#(Addr, Bit#(16), HitOrMiss)) memAccesses <- mkSizedBypassFIFOF(8);
     Reg#(Tuple3#(Addr, Bit#(16), HitOrMiss)) rdRespEntry <- mkReg(?);
@@ -1574,7 +1669,12 @@ provisos(
     NumAlias#(minConfidenceToPrefetch, 2),
     Alias#(strideTableIndexT, Bit#(TLog#(strideTableSize)))
     );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     Vector#(strideTableSize, Reg#(SimpleStrideEntry)) strideTable <- replicateM(mkReg(unpack(0)));
 
     Reg#(Addr) addrToPrefetch <- mkReg(0);
@@ -1651,7 +1751,12 @@ provisos(
     NumAlias#(cLinesBigStridePrefetchMax, 5), 
     Alias#(strideTableIndexT, Bit#(TLog#(strideTableSize)))
     );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     RWBramCore#(strideTableIndexT, StrideEntryAdaptive) strideTable <- mkRWBramCoreForwarded;
     FIFOF#(Tuple3#(Addr, Bit#(16), HitOrMiss)) memAccesses <- mkSizedBypassFIFOF(8);
     Reg#(Tuple3#(Addr, Bit#(16), HitOrMiss)) rdRespEntry <- mkReg(?);
@@ -1855,7 +1960,12 @@ module mkPrefetcherVector#(module#(Prefetcher) mkPrefetcher)
 ) provisos (
     Alias#(idxT, Bit#(TLog#(size)))
 );
-    Bool verbose = False;
+    Bool verbose =
+    `ifdef VERBOSE
+        True;
+    `else
+        False;
+    `endif
     Vector#(size, Prefetcher) prefetchers <- replicateM(mkPrefetcher);
     Fifo#(1, Tuple2#(Addr, idxT)) prefetchRq <- mkBypassFifo;
 
