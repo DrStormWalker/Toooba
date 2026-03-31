@@ -120,6 +120,16 @@ BSC_COMPILATION_FLAGS += \
 	-D CheriMasterIDWidth=1 \
 	-D CheriTransactionIDWidth=6
 
+ifneq (,$(findstring Zicboz,$(ARCH)))
+BSC_COMPILATION_FLAGS += \
+	-D ISA_ZICBOZ
+endif
+
+ifneq (,$(findstring Zicbop,$(ARCH)))
+BSC_COMPILATION_FLAGS += \
+	-D ISA_ZICBOP
+endif
+
 # TODO:
 #    -D SELF_INV_CACHE -D L1D_MAX_HITS=$(SELF_INV_CACHE)
 #    -D SYSTEM_SELF_INV_L1D
