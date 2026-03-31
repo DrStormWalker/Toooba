@@ -162,7 +162,7 @@ typedef struct {
 } WaitStResp deriving(Bits, Eq, FShow);
 
 function MemOp getLdQMemOp(LdQMemFunc c);
-    case(f) matches
+    case(c) matches
         Ld: return Ld;
         Lr: return Lr;
 `ifdef Zicbop
@@ -195,7 +195,11 @@ module mkDTlbSynth(DTlbSynth);
         return TlbReq {
             addr: getAddr(x.vaddr),
             write: (case(x.mem_func)
-                        St, Sc, Amo, Zero: True;
+                        St, Sc, Amo
+`ifdef Zicboz
+                        , Zero
+`endif
+                            : True;
                         default: False;
                     endcase),
             capStore: x.capStore,
@@ -268,6 +272,9 @@ interface MemExePipeline;
     interface SplitLSQ lsqIfc;
     interface StoreBuffer stbIfc;
     interface DCoCache dMemIfc;
+`ifdef Zicbop
+    interface ICoCache iMemIfc;
+`endif
     interface SpeculationUpdate specUpdate;
 `ifdef SELF_INV_CACHE
     interface Server#(void, void) reconcile;
@@ -281,7 +288,7 @@ interface MemExePipeline;
 `endif
 endinterface
 
-module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
+module mkMemExePipeline#(MemExeInput inIfc, ICoCache iMem)(MemExePipeline);
     Bool verbose =
     `ifdef VERBOSE
         True;
@@ -363,7 +370,7 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
     Fifo#(1, WaitStResp) waitStRespQ <- mkCFFifo;
 `endif
     // fifo for req mem
-    Fifo#(1, Tuple4#(LdQTag, Addr, Bool, Bit#(16)), LdQMemFunc) reqLdQ <- mkBypassFifo;
+    Fifo#(1, Tuple5#(LdQTag, Addr, Bool, Bit#(16), LdQMemFunc)) reqLdQ <- mkBypassFifo;
     Fifo#(1, ProcRq#(DProcReqId)) reqLrScAmoQ <- mkBypassFifo;
 `ifdef TSO_MM
     Fifo#(1, Tuple3#(Addr, Bit#(16), MemOp)) reqStQ <- mkBypassFifo;
@@ -700,6 +707,9 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
         // TestRIG expects us throw an access fault for any memory access outside of a 8 MiB memory at 0x8000000.
         if (!isValid(cause) && (paddr < 'h80000000 || paddr >= 'h80800000)) begin
             case(x.mem_func)
+`ifdef Zicbop
+                tagged Prefetch .ty: begin end
+`endif
                 Ld, Lr: begin
                     cause = Valid(Exception(excLoadAccessFault));
                 end
@@ -789,8 +799,11 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
 
         // issue non-MMIO Ld which has no exception and is not waiting for
         // wrong path resp
-        if (x.mem_func == Ld && !isMMIO &&
-            !isValid(cause) && !updRes.waitWPResp
+        if ((x.mem_func == Ld
+`ifdef Zicbop
+            || (x.mem_func matches tagged Prefetch .ty ? True : False)
+`endif
+            ) && !isMMIO && !isValid(cause) && !updRes.waitWPResp
             && !updRes.delayIssue) begin
             LdQTag ldTag = ?;
             if(x.ldstq_tag matches tagged Ld .t) begin
@@ -803,7 +816,8 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
                 tag: ldTag,
                 paddr: paddr,
                 shiftedBE: x.shiftedBE,
-                pcHash: hash(getAddr(pc))
+                pcHash: hash(getAddr(pc)),
+                func: getLdQMemFunc(x.mem_func)
             });
         end
 
@@ -839,7 +853,17 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
         if (info.shiftedBE == DataMemAccess (unpack(~0))) events.evt_MEM_CAP_LOAD = 1;
 `endif
         // search LSQ
-        LSQIssueLdResult issRes <- lsq.issueLd(info.tag, info.paddr, info.shiftedBE, sbRes);
+        LSQIssueLdResult issRes;
+`ifdef Zicbop
+        if (isLdQMemFuncPrefetch(info.func)) begin
+            issRes <- lsq.issuePrefetch(info.tag, info.paddr, info.shiftedBE, sbRes);
+        end else begin
+`endif
+            issRes <- lsq.issueLd(info.tag, info.paddr, info.shiftedBE, sbRes);
+`ifdef Zicbop
+        end
+`endif
+
         if(verbose) begin
             $display("%t : [doIssueLd] fromIssueQ: ", $time, fshow(fromIssueQ), " ; ",
                      fshow(info), " ; ", fshow(sbRes), " ; ", fshow(issRes));
@@ -1052,6 +1076,26 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
         end
 `endif
     endrule
+
+`ifdef Zicbop
+    rule doDeqLdPrefetch(
+        !isValid(lsqDeqLd.fault) && isLdQMemFuncPrefetch(lsqDeqLd.memFunc)
+    );
+        if (verbose)
+            $display("[doDeqLd_Prefetch] ", fshow(lsqDeqLd));
+
+        lsq.deqLd;
+
+        inIfc.rob_setExecuted_deqLSQ(lsqDeqLd.instTag, Invalid, lsqDeqLd.killed
+`ifdef RVFI
+            , ExtraTraceBundle {
+                regWriteData: unpack(0),
+                memByteEn: unpack(0)
+            }
+`endif
+        );
+    endrule
+`endif
 
 `ifdef SELF_INV_CACHE
     // issue reconcile to D$ in case of .aq
@@ -1603,21 +1647,55 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
         doAssert(!isValid(lsqDeqSt.fault), "no fault");
     endrule
 
+`ifdef Zicbop
+    function deqLdIPrefetch;
+        let {_lsqTag, _addr, _loadTags, _pcHash, op} = reqLdQ.first;
+
+        return op == Prefetch(InstructionLoad);
+    endfunction
+
+    rule sendPrefetchIToIMem(deqLdIPrefetch);
+        let {lsqTag, addr, loadTags, pcHash, op} <- toGet(reqLdQ).get;
+
+        iMem.prefetchRq(addr);
+        lsq.respPrefetch(lsqTag);
+    endrule
+`endif
+
     // send req to D$
     rule sendLdToMem;
-        let {lsqTag, addr, loadTags, pcHash} <- toGet(reqLdQ).get;
+        let {lsqTag, addr, loadTags, pcHash, op} <- toGet(reqLdQ).get;
+
+        doAssert(op != Lr, "Cannot send Lr to cache");
+`ifdef Zicbop
+        doAssert(op != Prefetch(InstructionLoad), "Cannot send instruction load prefetch to D$");
+`endif
+
+        let multicoreToState =
+`ifdef Zicbop
+            op == Prefetch(DataWrite) ? E :
+`endif
+            S;
+        
         dMem.procReq.req(ProcRq {
             id: zeroExtend(lsqTag),
             addr: addr,
-            toState: loadTags ? T : (multicore ? S : E), // in case of single core, just fetch to E
-            op: Ld,
+            toState: loadTags ? T : (multicore ? multicoreToState : E), // in case of single core, just fetch to E
+            op: getLdQMemOp(op),
             byteEn: ?,
             data: ?,
             amoInst: ?,
             loadTags: loadTags,
             pcHash: pcHash
         });
+
+`ifdef Zicbop
+        if (isLdQMemFuncPrefetch(op)) begin
+            lsq.respPrefetch(lsqTag);
+        end
+`endif
     endrule
+
     (* descending_urgency = "sendLdToMem, sendStToMem" *) // prioritize Ld over St
     rule sendStToMem;
 `ifdef TSO_MM
@@ -1655,6 +1733,9 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
     interface lsqIfc = lsq;
     interface stbIfc = stb;
     interface dMemIfc = dMem;
+`ifdef Zicbop
+    interface iMemIfc = iMem;
+`endif
     interface specUpdate = joinSpeculationUpdate(vec(
         rsMem.specUpdate,
         dispToRegQ.specUpdate,

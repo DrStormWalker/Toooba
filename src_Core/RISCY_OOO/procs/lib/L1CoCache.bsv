@@ -381,6 +381,7 @@ interface ICoCache;
     interface Server#(Addr, Vector#(ISupSzX2, Maybe#(Instruction16))) to_proc;
     method Action flush;
     method Bool flush_done;
+    method Action prefetchRq(Addr addr);
     interface Perf#(L1IPerfType) perf;
 `ifdef PERFORMANCE_MONITORING
     method EventsL1I events;
@@ -427,6 +428,7 @@ module mkICoCache(ICoCache);
 
     method flush = cache.flush;
     method flush_done = cache.flush_done;
+    method prefetchRq = cache.prefetchRq;
 
     interface Perf perf;
         method Action setStatus(Bool stats);

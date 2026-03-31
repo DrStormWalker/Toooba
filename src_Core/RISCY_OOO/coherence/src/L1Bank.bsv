@@ -619,6 +619,9 @@ endfunction
                 // set link addr
                 linkAddr <= Valid (getLineAddr(req.addr));
             end
+`ifdef Zicbop
+            tagged Prefetch .ty: begin end
+`endif
             Amo: begin
                 noAction;
             end
@@ -821,7 +824,7 @@ endfunction
                     owner: pipeOutSucc,
                     other: ?
                 },
-                line: newLine,
+                line: newLine
             }, isValid(pipeOutSucc) ? pipeOutNextInQueue : pipeOutSecondInQueue, True);
 
             cRqMshr.pipelineResp.releaseEntry(n);
@@ -873,7 +876,7 @@ endfunction
                 end
 `ifdef Zicboz
             end
-`endif`
+`endif
         endaction
         endfunction
 

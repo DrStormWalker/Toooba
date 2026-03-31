@@ -164,7 +164,7 @@ typedef enum {QWord, DWord, Word} AmoWidth deriving(Bits, Eq, FShow, Bounded);
 typedef enum {
     InstructionLoad,
     DataRead,
-    DataWrite,
+    DataWrite
 } PrefetchType deriving(Bits, Eq, FShow);
 `endif
 

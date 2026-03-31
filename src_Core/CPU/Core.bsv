@@ -519,7 +519,7 @@ module mkCore#(CoreId coreId)(Core);
 `endif
 `endif
         endinterface);
-        let memExe <- mkMemExePipeline(memExeInput);
+        let memExe <- mkMemExePipeline(memExeInput, iMem);
 
         interface aluExeIfc = aluExe;
         interface fpuMulDivExeIfc = fpuMulDivExe;

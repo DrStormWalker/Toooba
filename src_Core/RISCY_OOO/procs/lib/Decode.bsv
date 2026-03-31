@@ -52,10 +52,10 @@ function Maybe#(MemInst) decodeMemInst(Instruction inst, Bool cap_mode, RiscVISA
     Bool illegalInst = False;
     Opcode opcode = unpackOpcode(inst[6:0]);
 
-    let rd      = inst[11: 7]
+    let rd      = inst[11: 7];
     let funct3  = inst[14:12];
     let funct5  = inst[31:27];
-    let funct12 = inst[31:20]
+    let funct12 = inst[31:20];
 
     // mem_func + amo_func
     MemFunc mem_func = Ld;
@@ -63,11 +63,15 @@ function Maybe#(MemInst) decodeMemInst(Instruction inst, Bool cap_mode, RiscVISA
     if (opcode == opcLoad || opcode == opcLoadFp) begin
         mem_func = Ld;
     end else if (opcode == opcMiscMem) begin
+`ifdef Zicboz
         if (funct3 == fnLC && rd == 5'b0 && funct12 == 12'h04) begin
             mem_func = Zero;
         end else begin
+`endif
             mem_func = Ld;
+`ifdef Zicboz
         end
+`endif
     end else if (opcode == opcStore || opcode == opcStoreFp) begin
         mem_func = St;
     end else if (opcode == opcAmo) begin
@@ -163,7 +167,11 @@ function Maybe#(MemInst) decodeMemInst(Instruction inst, Bool cap_mode, RiscVISA
             default     : illegalInst = True;
         endcase
     end
-    ByteOrTagEn byteOrTagEn = mem_func == Zero ? TagMemAccess : DataMemAccess(byteEn);
+    ByteOrTagEn byteOrTagEn =
+`ifdef Zicboz
+        mem_func == Zero ? TagMemAccess :
+`endif
+        DataMemAccess(memByteEn);
 
     // aq + rl
     Bool aq = False;
@@ -195,13 +203,13 @@ function Maybe#(MemInst) decodeExplicitBoundsMemInst(Instruction inst);
     // defaults when the instruction is not a capability memory operation.
     Bool illegalInst = False;
 
-    Opcode opcode = unpackOpcode(inst[6:0])
+    Opcode opcode = unpackOpcode(inst[6:0]);
 
     let rd      = inst[11: 7];
     let funct3  = inst[14:12];
     let funct5  = inst[31:27];
     let funct7  = inst[31:25];
-    let funct12 = inst[13:20];
+    let funct12 = inst[31:20];
     
     Bit#(5) mem_code = (funct7==f7_cap_Loads) ? inst[24:20]:inst[11:7];
     Bool amo = unpack(mem_code[4]);
@@ -264,7 +272,11 @@ function Maybe#(MemInst) decodeExplicitBoundsMemInst(Instruction inst);
                   end
         endcase
     end
-    ByteOrTagEn byteOrTagEn = mem_func == Zero ? TagMemAccess : DataMemAccess(byteEn);
+    ByteOrTagEn byteOrTagEn =
+`ifdef Zicboz
+        mem_func == Zero ? TagMemAccess :
+`endif
+        DataMemAccess(byteEn);
 
     if (illegalInst) begin
         return tagged Invalid;
@@ -369,11 +381,11 @@ function DecodeResult decode(Instruction inst, Bool cap_mode);
                 MemInst mem_inst = MemInst {
                     mem_func: Prefetch(prefetchType),
                     amo_func: None,
-                    unsignedLd: True
+                    unsignedLd: True,
                     byteOrTagEn: DataMemAccess(byteEn),
                     aq: False,
                     rl: False,
-                    reg_bounds: cap_mode,
+                    reg_bounds: cap_mode
                 };
 
                 dInst.iType    = Prefetch;
@@ -381,7 +393,7 @@ function DecodeResult decode(Instruction inst, Bool cap_mode);
                 dInst.execFunc = tagged Mem mem_inst;
                 regs.dst       = Invalid;
             end else begin
-`endif`
+`endif
                 Maybe#(AluFunc) mAluFunc = case (funct3)
                     fnADD: Valid(Add);
                     fnSLT: Valid(Slt);
@@ -908,27 +920,31 @@ function DecodeResult decode(Instruction inst, Bool cap_mode);
                         dInst.execFunc = tagged Other;
                     end
                 end
-                fnLC: if (rd == 5'b0 && funct12 == 12'h04) begin
-                    dInst.iType = Cbo;
-                    legalInst = True;
-                    dInst.execFunc = tagged Mem mem_inst.Valid;
-                    regs.dst  = Invalid;
-                    regs.src1 = Valid(tagged Gpr rs1);
-                    regs.src2 = Invalid;
-                    dInst.imm = Invalid;
-                    dInst.csr = tagged Invalid;
-                    dInst.capChecks = memCapChecks(cap_mode);
-                end else begin
-                    dInst.iType = Ld;
-                    legalInst = isValid(mem_inst);
-                    dInst.execFunc = tagged Mem mem_inst.Valid;
-                    regs.dst  = Valid(tagged Gpr rd);
-                    regs.src1 = Valid(tagged Gpr rs1);
-                    regs.src2 = Invalid;
-                    dInst.imm = Valid(immI);
-                    dInst.csr = tagged Invalid;
-                    dInst.capChecks = memCapChecks(cap_mode);
-                end
+                fnLC:
+`ifdef Zicboz
+                    if (rd == 5'b0 && funct12 == 12'h04) begin
+                        dInst.iType = Cbo;
+                        legalInst = True;
+                        dInst.execFunc = tagged Mem mem_inst.Valid;
+                        regs.dst  = Invalid;
+                        regs.src1 = Valid(tagged Gpr rs1);
+                        regs.src2 = Invalid;
+                        dInst.imm = Invalid;
+                        dInst.csr = tagged Invalid;
+                        dInst.capChecks = memCapChecks(cap_mode);
+                    end else
+`endif
+                    begin
+                        dInst.iType = Ld;
+                        legalInst = isValid(mem_inst);
+                        dInst.execFunc = tagged Mem mem_inst.Valid;
+                        regs.dst  = Valid(tagged Gpr rd);
+                        regs.src1 = Valid(tagged Gpr rs1);
+                        regs.src2 = Invalid;
+                        dInst.imm = Valid(immI);
+                        dInst.csr = tagged Invalid;
+                        dInst.capChecks = memCapChecks(cap_mode);
+                    end
             endcase
         end
 

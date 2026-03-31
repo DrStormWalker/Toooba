@@ -384,7 +384,14 @@ module mkReorderBufferRowEhr(ReorderBufferRowEhr#(aluExeNum, fpuMulDivExeNum)) p
         // update ROB state
         if(non_mmio_st_done) begin
             rob_inst_state[state_finishMem_port] <= Executed;
-            doAssert(iType == St, "must be St");
+            doAssert(iType == St
+`ifdef Zicboz
+            || iType == Cbo,
+            "must be St or Zero"
+`else
+            , "must be St"
+`endif
+            );
         end
         // update VAddr
         ppc_vaddr_csrData[pvc_finishMem_port] <= VAddr (vaddr);

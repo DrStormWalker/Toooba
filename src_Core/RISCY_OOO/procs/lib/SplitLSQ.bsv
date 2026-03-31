@@ -69,6 +69,10 @@ export LSQHitInfo(..);
 export SplitLSQ(..);
 export mkSplitLSQ;
 export isLdQMemFunc;
+`ifdef Zicbop
+export isLdQMemFuncPrefetch;
+`endif
+export getLdQMemFunc;
 export isStQMemFunc;
 
 // state transition
@@ -127,10 +131,10 @@ export isStQMemFunc;
 // needs not to be dequeued from SQ; and older LQ entries can still exist.
 
 typedef union tagged {
-    void Ld,
-    void Lr,
+    void Ld;
+    void Lr;
 `ifdef Zicbop
-    PrefetchType Prefetch,
+    PrefetchType Prefetch;
 `endif
 } LdQMemFunc deriving(Bits, Eq, FShow);
 
@@ -557,7 +561,7 @@ function LdQMemFunc getLdQMemFunc(MemFunc f);
 `ifdef Zicbop
         tagged Prefetch .ty: return Prefetch(ty);
 `endif
-        default: ?;
+        default: return ?;
     endcase
 endfunction
 
@@ -1146,7 +1150,11 @@ module mkSplitLSQ(SplitLSQ);
         function Bool canIssue(LdQTag i);
             return (
                 ld_valid_findIss[i] &&
-                (ld_memFunc[i] == Ld || isLdQMemFuncPrefetch(ld_memFunc[i])) && // (1) valid load
+                (ld_memFunc[i] == Ld
+`ifdef Zicbop
+                || isLdQMemFuncPrefetch(ld_memFunc[i])
+`endif
+                ) && // (1) valid load
                 ld_computed_findIss[i] && // (2) computed
                 !ld_executing_findIss[i] && // (3) not executing (or done)
                 !isValid(ld_depLdQDeq_findIss[i]) &&
@@ -1364,7 +1372,11 @@ module mkSplitLSQ(SplitLSQ);
             end
             else begin
                 Bool no_older_st = !isValid(ld_olderSt_deqLd[deqP]);
-                if((ld_memFunc[deqP] == Ld || isLdQMemFuncPrefetch(ld_memFunc[deqP])) && !ld_isMMIO_deqLd[deqP]) begin
+                if((ld_memFunc[deqP] == Ld
+`ifdef Zicbop
+                || isLdQMemFuncPrefetch(ld_memFunc[deqP])
+`endif
+                ) && !ld_isMMIO_deqLd[deqP]) begin
                     // normal non-MMIO Ld: done, older St (if exists) verified
                     return ld_done_deqLd[deqP] &&
                            (no_older_st || ld_olderStVerified_deqLd[deqP]);
@@ -1846,8 +1858,8 @@ module mkSplitLSQ(SplitLSQ);
                             dst: ld_dst[tag],
                             data: MemTaggedData {
                                 tag: False,
-                                data: unpack(0),
-                            },
+                                data: unpack(0)
+                            }
                         });
                         // Set executing and record readFrom
                         ld_executing_issue[tag] <= True;
@@ -1989,8 +2001,8 @@ module mkSplitLSQ(SplitLSQ);
                                 dst: ld_dst[tag],
                                 data: MemTaggedData {
                                     tag: False,
-                                    data: unpack(0),
-                                },
+                                    data: unpack(0)
+                                }
                             });
                             // Set executing and record readFrom
                             ld_executing_issue[tag] <= True;
@@ -2057,9 +2069,10 @@ module mkSplitLSQ(SplitLSQ);
     endmethod
 
 `ifdef Zicbop
-    method ActionValue#(LSQIssueLDResult) issuePrefetch(
+    method ActionValue#(LSQIssueLdResult) issuePrefetch(
         LdQTag lsqTag, Addr paddr, ByteOrTagEn shiftedBE, SBSearchRes sbRes
     ) if (!wrongSpec_conflict);
+        return ToCache;
     endmethod
 `endif
 
@@ -2217,7 +2230,11 @@ module mkSplitLSQ(SplitLSQ);
 
         // sanity check
         if(!isValid(st_fault_deqSt[deqP])) begin
-            doAssert(checkAddrAlign(st_paddr_deqSt[deqP], st_byteEn[deqP]) || st_memFunc[deqP] ==  Zero,
+            doAssert(checkAddrAlign(st_paddr_deqSt[deqP], st_byteEn[deqP])
+`ifdef Zicboz
+            || st_memFunc[deqP] ==  Zero
+`endif
+            ,
                      "addr BE should be naturally aligned");
             doAssert(st_specBits_deqSt[deqP] == 0,
                      "must have zero spec bits");

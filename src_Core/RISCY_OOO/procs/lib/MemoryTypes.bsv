@@ -44,10 +44,18 @@ import ClientServer::*;
 
 typedef MemTaggedData MemResp;
 
-typedef enum{Ld, St, Lr, Sc, Amo
+typedef union tagged{
+    void Ld;
+    void St;
+    void Lr;
+    void Sc;
+    void Amo;
 `ifdef Zicboz
-    , Zero
-`endif`
+    void Zero;
+`endif
+`ifdef Zicbop
+    PrefetchType Prefetch;
+`endif
 } MemOp deriving(Eq,Bits,FShow); // add more ops
 
 Bit#(3) memB    = 3'b000;

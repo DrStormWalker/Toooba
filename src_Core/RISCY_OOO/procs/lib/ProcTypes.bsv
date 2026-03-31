@@ -289,7 +289,7 @@ typedef enum {
     Cbo,
 `endif
 `ifdef Zicbop
-    Prefetch
+    Prefetch,
 `endif
     Fence,
     FenceI, SFence,

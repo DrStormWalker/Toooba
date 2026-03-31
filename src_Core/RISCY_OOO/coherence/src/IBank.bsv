@@ -105,6 +105,7 @@ interface IBank#(
     // performance
     method Action setPerfStatus(Bool stats);
     method Data getPerfData(L1IPerfType t);
+    method Action prefetchRq(Addr addr);
 `ifdef PERFORMANCE_MONITORING
     method EventsL1I events;
 `endif
@@ -229,6 +230,31 @@ module mkIBank#(
     endaction
     endfunction
 
+    function Action doPrefetchRq(Addr addr);
+    action
+        procRqT r = ProcRqToI {addr: addr};
+        cRqIdxT n <- cRqMshr.getEmptyEntryInit(r);
+
+        // Send to pipeline
+        pipeline.send(CRq (L1PipeRqIn {
+            addr: r.addr,
+            mshrIdx: n
+        }));
+
+        // Enq to indexQ for in order resp
+        prefetchIndexQ.enq(n);
+        cRqIsPrefetch[n] <= True;
+        addedCRqs.incr(1);
+
+        // Prefformance counter: cRq type
+        //incrReqCnt; TODO: Make separate counter for prefetch requests
+        if (verbose)
+            $display("%t I %m createPrefetchRq: ", $time,
+                fshow(n), " ; ", fshow(r)
+            );
+    endaction
+    endfunction
+
     function Action incrMissCnt(cRqIdxT idx);
     action
         let lat <- latTimer.done(idx);
@@ -321,24 +347,7 @@ module mkIBank#(
     (* descending_urgency = "pRqTransfer, cRqTransfer, createPrefetchRq" *)
     rule createPrefetchRq(flushDone);
         Addr addr <- prefetcher.getNextPrefetchAddr;
-        procRqT r = ProcRqToI {addr: addr};
-        cRqIdxT n <- cRqMshr.getEmptyEntryInit(r);
-        // send to pipeline
-        pipeline.send(CRq (L1PipeRqIn {
-            addr: r.addr,
-            mshrIdx: n
-        }));
-        // enq to indexQ for in order resp
-        prefetchIndexQ.enq(n);
-        cRqIsPrefetch[n] <= True;
-        addedCRqs.incr(1);
-        // performance counter: cRq type
-        //incrReqCnt; TODO make separate counter for prefetch requests
-       if (verbose)
-        $display("%t I %m createPrefetchRq: ", $time,
-            fshow(n), " ; ",
-            fshow(r)
-        );
+        doPrefetchRq(addr);
     endrule
 
 `ifdef SECURITY_CACHES
@@ -931,6 +940,10 @@ module mkIBank#(
 `ifdef PERFORMANCE_MONITORING
     method EventsL1I events = perf_events[0];
 `endif
+
+    method Action prefetchRq(Addr addr);
+        doPrefetchRq(addr);
+    endmethod
 endmodule
 
 
