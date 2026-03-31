@@ -160,11 +160,29 @@ typedef Bit#(LgMemDataSzInst) MemDataInstOffset;
 // These types show up in many places so they are defined here
 typedef enum {Swap, Add, Xor, And, Or, Min, Max, Minu, Maxu, None} AmoFunc deriving(Bits, Eq, FShow, Bounded);
 typedef enum {QWord, DWord, Word} AmoWidth deriving(Bits, Eq, FShow, Bounded);
-typedef enum { Ld, St, Lr, Sc, Amo, Fence
+`ifdef Zicbop
+typedef enum {
+    InstructionLoad,
+    DataRead,
+    DataWrite,
+} PrefetchType deriving(Bits, Eq, FShow);
+`endif
+
+typedef union tagged {
+  void Ld;
+  void St;
+  void Lr;
+  void Sc;
+  void Amo;
+  void Fence;
 `ifdef Zicboz
-  , Zero
+  void Zero;
+`endif
+`ifdef Zicbop
+  PrefetchType Prefetch;
 `endif
 } MemFunc deriving(Bits, Eq, FShow);
+
 typedef struct {
   AmoFunc  func;
   AmoWidth width;

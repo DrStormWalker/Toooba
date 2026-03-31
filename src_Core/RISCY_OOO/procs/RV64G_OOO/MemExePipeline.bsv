@@ -161,6 +161,17 @@ typedef struct {
     MemTaggedData shiftedData;
 } WaitStResp deriving(Bits, Eq, FShow);
 
+function MemOp getLdQMemOp(LdQMemFunc c);
+    case(f) matches
+        Ld: return Ld;
+        Lr: return Lr;
+`ifdef Zicbop
+        tagged Prefetch .ty: return Prefetch(ty);
+`endif
+        default: return ?;
+    endcase
+endfunction
+
 //SpecFifo#(2,IncorrectSpec,1,1) incorrectSpec_ff <- mkSpecFifoCF(True);
 // synthesized pipeline fifos
 typedef SpecFifo_SB_deq_enq_C_deq_enq#(1, MemDispatchToRegRead) MemDispToRegFifo;
@@ -184,7 +195,7 @@ module mkDTlbSynth(DTlbSynth);
         return TlbReq {
             addr: getAddr(x.vaddr),
             write: (case(x.mem_func)
-                        St, Sc, Amo: True;
+                        St, Sc, Amo, Zero: True;
                         default: False;
                     endcase),
             capStore: x.capStore,
@@ -352,7 +363,7 @@ module mkMemExePipeline#(MemExeInput inIfc)(MemExePipeline);
     Fifo#(1, WaitStResp) waitStRespQ <- mkCFFifo;
 `endif
     // fifo for req mem
-    Fifo#(1, Tuple4#(LdQTag, Addr, Bool, Bit#(16))) reqLdQ <- mkBypassFifo;
+    Fifo#(1, Tuple4#(LdQTag, Addr, Bool, Bit#(16)), LdQMemFunc) reqLdQ <- mkBypassFifo;
     Fifo#(1, ProcRq#(DProcReqId)) reqLrScAmoQ <- mkBypassFifo;
 `ifdef TSO_MM
     Fifo#(1, Tuple3#(Addr, Bit#(16), MemOp)) reqStQ <- mkBypassFifo;

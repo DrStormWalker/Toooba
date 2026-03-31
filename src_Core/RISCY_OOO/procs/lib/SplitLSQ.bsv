@@ -126,7 +126,13 @@ export isStQMemFunc;
 // from TSO, i.e., an Sc/Amo can be verified by just computing the addr; it
 // needs not to be dequeued from SQ; and older LQ entries can still exist.
 
-typedef enum {Ld, Lr} LdQMemFunc deriving(Bits, Eq, FShow);
+typedef union tagged {
+    void Ld,
+    void Lr,
+`ifdef Zicbop
+    PrefetchType Prefetch,
+`endif
+} LdQMemFunc deriving(Bits, Eq, FShow);
 
 // LQ holds Ld and Lr. This type is for documentation purpose, it is not really
 // used.
@@ -300,6 +306,7 @@ typedef struct {
     Addr paddr;
     ByteOrTagEn shiftedBE;
     Bit#(16) pcHash;
+    LdQMemFunc func;
 } LSQIssueLdInfo deriving(Bits, Eq, FShow);
 
 typedef struct {
@@ -386,8 +393,18 @@ interface SplitLSQ;
     method ActionValue#(LSQIssueLdResult) issueLd(
         LdQTag lsqTag, Addr paddr, ByteOrTagEn shiftedBE, SBSearchRes sbRes
     );
+`ifdef Zicbop
+    // Issue a prefetch
+    method ActionValue#(LSQIssueLdResult) issuePrefetch(
+        LdQTag lsqTag, Addr paddr, ByteOrTagEn shiftedBE, SBSearchRes sbRes
+    );
+`endif
     // Get the load to issue
     method LSQIssueLdInfo getIssueLd;
+`ifdef Zicbop
+    // Get prefetch resp
+    method Action respPrefetch(LdQTag t);
+`endif
     // Get load resp
     method ActionValue#(LSQRespLdResult) respLd(LdQTag t, MemTaggedData alignedData);
     // Deq LQ entry, and wakeup stalled loads. The guard checks the following:
@@ -534,11 +551,14 @@ endfunction
 
 // get mem func
 function LdQMemFunc getLdQMemFunc(MemFunc f);
-    return (case(f)
-        Ld: (Ld);
-        Lr: (Lr);
+    case(f) matches
+        Ld: return Ld;
+        Lr: return Lr;
+`ifdef Zicbop
+        tagged Prefetch .ty: return Prefetch(ty);
+`endif
         default: ?;
-    endcase);
+    endcase
 endfunction
 
 function StQMemFunc getStQMemFunc(MemFunc f);
@@ -554,11 +574,24 @@ function StQMemFunc getStQMemFunc(MemFunc f);
     endcase);
 endfunction
 
+`ifdef Zicbop
+function Bool isLdQMemFuncPrefetch(LdQMemFunc f);
+    case(f) matches
+        tagged Prefetch .x: return True;
+        default: return False;
+    endcase
+endfunction
+`endif
+
 function Bool isLdQMemFunc(MemFunc f);
-    return (case(f)
-        Ld, Lr: (True);
-        default: (False);
-    endcase);
+    case(f) matches
+        Ld: return True;
+        Lr: return True;
+`ifdef Zicbop
+        tagged Prefetch .ty: return True;
+`endif
+        default: return False;
+    endcase
 endfunction
 
 function Bool isStQMemFunc(MemFunc f);
@@ -1112,7 +1145,8 @@ module mkSplitLSQ(SplitLSQ);
         // find all can issue loads
         function Bool canIssue(LdQTag i);
             return (
-                ld_valid_findIss[i] && ld_memFunc[i] == Ld && // (1) valid load
+                ld_valid_findIss[i] &&
+                (ld_memFunc[i] == Ld || isLdQMemFuncPrefetch(ld_memFunc[i])) && // (1) valid load
                 ld_computed_findIss[i] && // (2) computed
                 !ld_executing_findIss[i] && // (3) not executing (or done)
                 !isValid(ld_depLdQDeq_findIss[i]) &&
@@ -1136,7 +1170,8 @@ module mkSplitLSQ(SplitLSQ);
                 tag: tag,
                 paddr: ld_paddr_findIss[tag],
                 shiftedBE: ld_shiftedBE_findIss[tag],
-                pcHash: ld_pcHash[tag]
+                pcHash: ld_pcHash[tag],
+                func: ld_memFunc[tag]
             };
             issueLdInfo.wset(info);
             if(verbose) begin
@@ -1329,7 +1364,7 @@ module mkSplitLSQ(SplitLSQ);
             end
             else begin
                 Bool no_older_st = !isValid(ld_olderSt_deqLd[deqP]);
-                if(ld_memFunc[deqP] == Ld && !ld_isMMIO_deqLd[deqP]) begin
+                if((ld_memFunc[deqP] == Ld || isLdQMemFuncPrefetch(ld_memFunc[deqP])) && !ld_isMMIO_deqLd[deqP]) begin
                     // normal non-MMIO Ld: done, older St (if exists) verified
                     return ld_done_deqLd[deqP] &&
                            (no_older_st || ld_olderStVerified_deqLd[deqP]);
@@ -2021,9 +2056,26 @@ module mkSplitLSQ(SplitLSQ);
         return issRes;
     endmethod
 
+`ifdef Zicbop
+    method ActionValue#(LSQIssueLDResult) issuePrefetch(
+        LdQTag lsqTag, Addr paddr, ByteOrTagEn shiftedBE, SBSearchRes sbRes
+    ) if (!wrongSpec_conflict);
+    endmethod
+`endif
+
     method LSQIssueLdInfo getIssueLd if (issueLdInfo.wget matches tagged Valid .info &&& !wrongSpec_conflict);
         return info;
     endmethod
+
+`ifdef Zicbop
+    method Action respPrefetch(LdQTag t);
+        ld_done_resp[t] <= True;
+
+        if (verbose) begin
+            $display("[LSQ - respPrefetch] ", fshow(t));
+        end
+    endmethod
+`endif
 
     method ActionValue#(LSQRespLdResult) respLd(LdQTag t, MemTaggedData alignedData) if (!wrongSpec_conflict);
         let res = LSQRespLdResult {

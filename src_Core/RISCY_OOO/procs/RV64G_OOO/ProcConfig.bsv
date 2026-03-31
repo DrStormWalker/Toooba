@@ -50,7 +50,8 @@
 `define f True
 `define d True
 `define c True
-`define Zicboz True
+// `define Zicboz True
+// `define Zicbop True
 
 //`define NUM_CORES 1 // defined in make file
 

@@ -288,6 +288,9 @@ typedef enum {
 `ifdef Zicboz
     Cbo,
 `endif
+`ifdef Zicbop
+    Prefetch
+`endif
     Fence,
     FenceI, SFence,
     Ecall, Ebreak,
@@ -408,12 +411,12 @@ typedef struct {
 
 // LdStInst and AmoInst are defined in Types.bsv
 typedef union tagged {
-    AluFunc     Alu;
-    BrFunc      Br;
-    MemInst     Mem;
-    MulDivInst  MulDiv;
-    FpuInst     Fpu;
-    void        Other;
+    AluFunc      Alu;
+    BrFunc       Br;
+    MemInst      Mem;
+    MulDivInst   MulDiv;
+    FpuInst      Fpu;
+    void         Other;
 } ExecFunc deriving(Bits, Eq, FShow);
 
 typedef union tagged {
@@ -858,6 +861,11 @@ Bit#(5) opFCVT_FW = 5'b11010;
 Bit#(3) fnFENCE  = 3'b000;
 Bit#(3) fnFENCEI = 3'b001;
 Bit#(3) fnLC     = 3'b010;
+
+//Prefetch
+Bit#(5) prefetchInstLoad  = 5'b00000;
+Bit#(5) prefetchDataRead  = 5'b00001;
+Bit#(5) prefetchDataWrite = 5'b00011;
 
 // System
 Bit#(3) fnPRIV   = 3'b000;

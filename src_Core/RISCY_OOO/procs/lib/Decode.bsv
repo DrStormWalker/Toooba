@@ -351,23 +351,59 @@ function DecodeResult decode(Instruction inst, Bool cap_mode);
 
     case (opcode)
         opcOpImm: begin
-            dInst.iType = Alu;
-            Maybe#(AluFunc) mAluFunc = case (funct3)
-                fnADD: Valid(Add);
-                fnSLT: Valid(Slt);
-                fnSLTU: Valid(Sltu);
-                fnAND: Valid(And);
-                fnOR: Valid(Or);
-                fnXOR: Valid(Xor);
-                fnSLL: (immI[11:6] == 6'b000000 ? Valid(Sll) : Invalid);
-                fnSR: (immI[11:6] == 6'b000000 ? Valid(Srl) :
-                       immI[11:6] == 6'b010000 ? Valid(Sra) :
-                       Invalid);
-                default: Invalid;
-            endcase;
-            legalInst = isValid(mAluFunc);
-            dInst.execFunc = tagged Alu mAluFunc.Valid;
-            regs.dst  = Valid(tagged Gpr rd);
+`ifdef Zicbop
+            Maybe#(PrefetchType) mPrefetchType = Invalid;
+            if (funct3 == fnOR && rd == 5'b0) begin
+                mPrefetchType = case (funct5rs2)
+                    prefetchInstLoad: Valid(InstructionLoad);
+                    prefetchDataRead: Valid(DataRead);
+                    prefetchDataWrite: Valid(DataWrite);
+                    default: Invalid;
+                endcase;
+            end
+
+            if (mPrefetchType matches tagged Valid .prefetchType) begin
+                MemDataByteEn byteEn = replicate(False);
+                byteEn[0] = True;
+
+                MemInst mem_inst = MemInst {
+                    mem_func: Prefetch(prefetchType),
+                    amo_func: None,
+                    unsignedLd: True
+                    byteOrTagEn: DataMemAccess(byteEn),
+                    aq: False,
+                    rl: False,
+                    reg_bounds: cap_mode,
+                };
+
+                dInst.iType    = Prefetch;
+                legalInst      = True;
+                dInst.execFunc = tagged Mem mem_inst;
+                regs.dst       = Invalid;
+            end else begin
+`endif`
+                Maybe#(AluFunc) mAluFunc = case (funct3)
+                    fnADD: Valid(Add);
+                    fnSLT: Valid(Slt);
+                    fnSLTU: Valid(Sltu);
+                    fnAND: Valid(And);
+                    fnOR: Valid(Or);
+                    fnXOR: Valid(Xor);
+                    fnSLL: (immI[11:6] == 6'b000000 ? Valid(Sll) : Invalid);
+                    fnSR: (immI[11:6] == 6'b000000 ? Valid(Srl) :
+                           immI[11:6] == 6'b010000 ? Valid(Sra) :
+                           Invalid);
+                    default: Invalid;
+                endcase;
+
+                dInst.iType    = Alu;
+                legalInst      = isValid(mAluFunc);
+                dInst.execFunc = tagged Alu mAluFunc.Valid;
+                regs.dst       = Valid(tagged Gpr rd);
+`ifdef Zicbop
+            end
+`endif
+        
             regs.src1 = Valid(tagged Gpr rs1);
             regs.src2 = Invalid;
             dInst.imm = Valid(immI);
