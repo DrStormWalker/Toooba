@@ -1,7 +1,7 @@
 ###  -*-Makefile-*-
 
 REPO ?= ../..
-ARCH ?= RV64ACDFIMSUxCHERI
+ARCH ?= RV64ACDFIMSUxCHERI_Zicboz_Zicbop
 
 # ================================================================
 # RISC-V config macros passed into Bluespec 'bsc' compiler
