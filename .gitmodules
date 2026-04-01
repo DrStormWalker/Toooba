@@ -18,4 +18,4 @@
 	url = https://github.com/CTSRD-CHERI/WindCoreInterface.git
 [submodule "Tests/benchmarks"]
 	path = Tests/benchmarks
-	url = https://github.com/DrStormWalker/toooba-sim-benchmarks#
+	url = https://github.com/DrStormWalker/toooba-sim-benchmarks.git
