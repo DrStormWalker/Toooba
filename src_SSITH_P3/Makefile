@@ -17,7 +17,7 @@ compile: compile_sim compile_synth
 # ================================================================
 
 REPO ?= $(CURDIR)/..
-ARCH ?= RV64ACDFIMSUxCHERI
+ARCH ?= RV64ACDFIMSUxCHERI_Zicboz_Zicbop
 
 # Set number of cores for RISCY config
 CORE_NUM = 2
