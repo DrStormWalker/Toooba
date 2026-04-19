@@ -227,7 +227,6 @@ module mkSelfInvL1Bank#(
 `ifdef Zicboz
     Count#(Data) zeroCnt <- mkCount(0);
 `endif
-    Count#(Data) 
     Count#(Data) ldMissLat <- mkCount(0);
     Count#(Data) stMissLat <- mkCount(0);
     Count#(Data) amoMissLat <- mkCount(0);
