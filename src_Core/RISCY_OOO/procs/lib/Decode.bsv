@@ -392,6 +392,7 @@ function DecodeResult decode(Instruction inst, Bool cap_mode);
                 legalInst      = True;
                 dInst.execFunc = tagged Mem mem_inst;
                 regs.dst       = Invalid;
+                dInst.imm      = Valid(immS);
             end else begin
 `endif
                 Maybe#(AluFunc) mAluFunc = case (funct3)
@@ -412,13 +413,13 @@ function DecodeResult decode(Instruction inst, Bool cap_mode);
                 legalInst      = isValid(mAluFunc);
                 dInst.execFunc = tagged Alu mAluFunc.Valid;
                 regs.dst       = Valid(tagged Gpr rd);
+                dInst.imm = Valid(immI);
 `ifdef Zicbop
             end
 `endif
         
             regs.src1 = Valid(tagged Gpr rs1);
             regs.src2 = Invalid;
-            dInst.imm = Valid(immI);
             dInst.csr = tagged Invalid;
         end
 

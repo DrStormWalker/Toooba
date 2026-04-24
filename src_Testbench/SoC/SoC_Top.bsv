@@ -43,11 +43,12 @@ import Vector        :: *;
 // ----------------
 // BSV additional libs
 
-import Cur_Cycle   :: *;
-import GetPut_Aux  :: *;
-import Routable    :: *;
-import BlueBasics  :: *;
-import BlueAXI4    :: *;
+import Cur_Cycle      :: *;
+import GetPut_Aux     :: *;
+import Routable       :: *;
+import BlueBasics     :: *;
+import BlueAXI4       :: *;
+import AXI4_DelayShim :: *;
 
 // ================================================================
 // Project imports
@@ -182,6 +183,57 @@ module mkSoC_Top #(Reset dm_power_on_reset)
    AXI4_Accel_IFC  accel0 <- mkAXI4_Accel;
 `endif
 
+`ifdef INCLUDE_MEM_DELAY_SHIM
+   Bit#(16) defaultLatency = 0;
+   Reg#(Bit#(16)) latencyCycles <- mkReg(defaultLatency);
+
+   NumProxy#(128) depthProxy = error("Do not look inside this proxy");
+
+   let master_0_delay <- mkAXI4_DelayShim(depthProxy, latencyCycles);
+
+   let latencyToggleShim <- mkAXI4Shim;
+
+   rule changeLatency;
+      let awflit <- get(latencyToggleShim.master.aw);
+      let wflit <- get(latencyToggleShim.master.w);
+      $display("rule changeLatency: aw - ", fshow(awflit),
+             "\n                     w - ", fshow(wflit));
+      let bresp = OKAY;
+      let latency = truncate(wflit.wdata);
+      Bit#(12) addr = truncate(awflit.awdata);
+      case(addr)
+         0: latencyCycles <= latency;
+         default: bresp = SLVERR;
+      endcase
+      let bflit = AXI4_BFlit {
+         bid: awflit.awid,
+         bresp: bresp,
+         buser: awflit.awuser,
+      };
+      latencyToggleShim.master.b.put(bflit);
+   endrule
+
+   rule queryLatency;
+      let arflit <- get(latencyToggleShim.master.ar);
+      $display("rule queryLatency: ar - ", fshow(arflit));
+      Bit#(12) addr = truncate(arflit.araddr);
+      let rresp = OKAY;
+      Bit#(Wd_Data_Periph) rdata = ?;
+      case(addr)
+         0: rdata = zeroExtend(latencyCycles);
+         default: rresp = SLVERR;
+      endcase
+      let rflit = AXI4_RFlit {
+         rid: arflit.arid,
+         rresp: rresp,
+         rdata: rdata,
+         rlast: True,
+         ruser: arflit.aruser,
+      };
+      latencyToggleShim.master.r.put(rflit);
+   endrule
+`endif
+
    // ----------------
    // SoC fabric master connections
    // Note: see 'SoC_Map' for 'master_num' definitions
@@ -211,7 +263,12 @@ module mkSoC_Top #(Reset dm_power_on_reset)
    route_vector[boot_rom_slave_num] = soc_map.m_boot_rom_addr_range;
 
    // Fabric to Mem Controller
+`ifdef INCLUDE_MEM_DELAY_SHIM
+   mkConnection(master_0_delay.master, mem0_controller.slave);
+   mkConnection(mem0_controller_axi4_deburster.master, master_0_delay.slave);
+`else
    mkConnection(mem0_controller_axi4_deburster.master, mem0_controller.slave);
+`endif
    slave_vector[mem0_controller_slave_num] = mem0_controller_axi4_deburster.slave;
    route_vector[mem0_controller_slave_num] = soc_map.m_mem0_controller_addr_range;
 
@@ -230,6 +287,11 @@ module mkSoC_Top #(Reset dm_power_on_reset)
 
    slave_vector[htif_slave_num] = htif;
    route_vector[htif_slave_num] = soc_map.m_htif_addr_range;
+`endif
+
+`ifdef INCLUDE_MEM_DELAY_SHIM
+   slave_vector[soc_config_slave_num] = latencyToggleShim.slave;
+   route_vector[soc_config_slave_num] = soc_map.m_soc_config_addr_range;
 `endif
 
    // SoC Fabric

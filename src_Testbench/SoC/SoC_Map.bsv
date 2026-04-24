@@ -50,6 +50,7 @@ export  Wd_SId;
 export  boot_rom_slave_num;
 export  mem0_controller_slave_num;
 export  uart0_slave_num;
+export  soc_config_slave_num;
 
 export  N_External_Interrupt_Sources;
 export  n_external_interrupt_sources;
@@ -101,6 +102,9 @@ interface SoC_Map_IFC;
    (* always_ready *)   method  Range#(Wd_Addr)  m_boot_rom_addr_range;
    (* always_ready *)   method  Range#(Wd_Addr)  m_mem0_controller_addr_range;
    (* always_ready *)   method  Range#(Wd_Addr)  m_tcm_addr_range;
+`ifdef INCLUDE_MEM_DELAY_SHIM
+   (* always_ready *)   method  Range#(Wd_Addr)  m_soc_config_addr_range;
+`endif
 
    (* always_ready *)
    method  Bool  m_is_mem_addr (Fabric_Addr addr);
@@ -162,6 +166,16 @@ module mkSoC_Map (SoC_Map_IFC);
    };
 
    // ----------------------------------------------------------------
+   // SoC Config Addresses
+
+`ifdef INCLUDE_MEM_DELAY_SHIM
+   let soc_config_addr_range = Range {
+      base: 'h_0000_8000,
+      size: 'h_0000_1000    // 4K
+   };
+`endif
+
+   // ----------------------------------------------------------------
    // Tightly-coupled memory ('TCM'; optional)
 
 `ifdef Near_Mem_TCM
@@ -202,6 +216,9 @@ module mkSoC_Map (SoC_Map_IFC);
 		  && (   inRange(near_mem_io_addr_range, addr)
 		      || inRange(plic_addr_range, addr)
 		      || inRange(uart0_addr_range, addr)
+`ifdef INCLUDE_MEM_DELAY_SHIM
+              || inRange(soc_config_addr_range, addr)
+`endif
 		      )
 		  )
 	      );
@@ -221,6 +238,9 @@ module mkSoC_Map (SoC_Map_IFC);
    method  Range#(Wd_Addr)  m_plic_addr_range = plic_addr_range;
    method  Range#(Wd_Addr)  m_uart0_addr_range = uart0_addr_range;
    method  Range#(Wd_Addr)  m_boot_rom_addr_range = boot_rom_addr_range;
+`ifdef INCLUDE_MEM_DELAY_SHIM
+   method  Range#(Wd_Addr)  m_soc_config_addr_range = soc_config_addr_range;
+`endif
 
    method  Range#(Wd_Addr)  m_mem0_controller_addr_range = mem0_controller_addr_range;
 
@@ -248,11 +268,20 @@ Integer dmem_master_num = 1;
 // ================================================================
 // Count and slave-numbers of slaves in the fabric.
 
-typedef 3 Num_Slaves;
+typedef
+`ifdef INCLUDE_MEM_DELAY_SHIM
+   4
+`else
+   3
+`endif
+   Num_Slaves;
 
 Integer boot_rom_slave_num        = 0;
 Integer mem0_controller_slave_num = 1;
 Integer uart0_slave_num           = 2;
+`ifdef INCLUDE_MEM_DELAY_SHIM
+Integer soc_config_slave_num      = 3;
+`endif
 
 // ================================================================
 // Width of fabric 'id' buses

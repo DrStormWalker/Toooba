@@ -156,10 +156,12 @@ BLUESTUFFDIR ?= $(CORE_DIR)/libs/BlueStuff
 include $(BLUESTUFFDIR)/bluestuff.inc.mk # sets the BLUESTUFF_DIRS variable
 
 # search path for bsc imports
+ifndef BSC_CONTRIB_LIB_DIR
 ifdef BSC_CONTRIB_DIR
 BSC_CONTRIB_LIB_DIR = $(BSC_CONTRIB_DIR)/lib/Libraries
 else
 BSC_CONTRIB_LIB_DIR = %/Libraries
+endif
 endif
 BSC_CONTRIB_DIRS = $(BSC_CONTRIB_LIB_DIR)/Bus
 

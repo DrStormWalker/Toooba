@@ -19,3 +19,6 @@
 [submodule "Tests/benchmarks"]
 	path = Tests/benchmarks
 	url = https://github.com/DrStormWalker/toooba-sim-benchmarks.git
+[submodule "libs/bsc-contrib"]
+	path = libs/bsc-contrib
+	url = https://github.com/B-Lang-org/bsc-contrib.git
