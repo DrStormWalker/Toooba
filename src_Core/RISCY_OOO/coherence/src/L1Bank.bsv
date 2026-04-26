@@ -249,7 +249,7 @@ action
     case(op)
         Ld: events.evt_LD = 1;
         St: events.evt_ST = 1;
-`ifdef
+`ifdef Zicboz
         Zero: events.evt_ZERO = 1;
 `endif
         Lr, Sc, Amo: events.evt_AMO = 1;

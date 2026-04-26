@@ -187,50 +187,50 @@ module mkSoC_Top #(Reset dm_power_on_reset)
    Bit#(16) defaultLatency = 0;
    Reg#(Bit#(16)) latencyCycles <- mkReg(defaultLatency);
 
-   NumProxy#(128) depthProxy = error("Do not look inside this proxy");
+   NumProxy#(128) depthProxy = error("Do not look inside proxy");
 
-   let master_0_delay <- mkAXI4_DelayShim(depthProxy, latencyCycles);
+   AXI4_Shim#(Wd_SId, Wd_Addr, Wd_Data_Periph, 0, 0, 0, 0, 0)
+      master_0_delay <- mkAXI4_DelayShim(depthProxy, latencyCycles);
 
+   // Support dynamic changing of latency
    let latencyToggleShim <- mkAXI4Shim;
 
    rule changeLatency;
-      let awflit <- get(latencyToggleShim.master.aw);
-      let wflit <- get(latencyToggleShim.master.w);
-      $display("rule changeLatency: aw - ", fshow(awflit),
-             "\n                     w - ", fshow(wflit));
-      let bresp = OKAY;
-      let latency = truncate(wflit.wdata);
-      Bit#(12) addr = truncate(awflit.awdata);
-      case(addr)
-         0: latencyCycles <= latency;
-         default: bresp = SLVERR;
-      endcase
-      let bflit = AXI4_BFlit {
-         bid: awflit.awid,
-         bresp: bresp,
-         buser: awflit.awuser,
-      };
-      latencyToggleShim.master.b.put(bflit);
+       let awflit <- get(latencyToggleShim.master.aw);
+       let wflit <- get(latencyToggleShim.master.w);
+       $display("rule changeLatency: aw - ", fshow(awflit),
+              "\n                     w - ", fshow(wflit));
+       let bresp = OKAY;
+       Bit#(16) latency = truncate(wflit.wdata);
+       Bit#(12) addr = truncate(awflit.awaddr);
+       $display("changing latency from ", fshow(latencyCycles), " to ", fshow(latency), " (", fshow(addr), ")");
+       case(addr)
+           0:       latencyCycles <= latency;
+           default: bresp = SLVERR;
+       endcase
+       let bflit = AXI4_BFlit { bid: awflit.awid
+                              , bresp: bresp
+                              , buser: awflit.awuser };
+       latencyToggleShim.master.b.put(bflit);
    endrule
 
    rule queryLatency;
-      let arflit <- get(latencyToggleShim.master.ar);
-      $display("rule queryLatency: ar - ", fshow(arflit));
-      Bit#(12) addr = truncate(arflit.araddr);
-      let rresp = OKAY;
-      Bit#(Wd_Data_Periph) rdata = ?;
-      case(addr)
-         0: rdata = zeroExtend(latencyCycles);
-         default: rresp = SLVERR;
-      endcase
-      let rflit = AXI4_RFlit {
-         rid: arflit.arid,
-         rresp: rresp,
-         rdata: rdata,
-         rlast: True,
-         ruser: arflit.aruser,
-      };
-      latencyToggleShim.master.r.put(rflit);
+       let arflit <- get(latencyToggleShim.master.ar);
+       $display("rule queryLatency: ar - ", fshow(arflit));
+       Bit#(12) addr = truncate(arflit.araddr);
+       let rresp = OKAY;
+       Bit#(Wd_Data_Periph) rdata = ?;
+       case(addr)
+           0:       rdata = zeroExtend(latencyCycles);
+           default: rresp = SLVERR;
+       endcase
+       $display("read latency ", fshow(rdata));
+       let rflit = AXI4_RFlit { rid: arflit.arid
+                              , rresp: rresp
+                              , rdata: rdata
+                              , rlast: True
+                              , ruser: arflit.aruser };
+       latencyToggleShim.master.r.put(rflit);
    endrule
 `endif
 

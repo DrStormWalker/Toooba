@@ -26,6 +26,10 @@ RVFI ?= false
 # *and* retrieving those RVFI traces over a socket, which is used for TestRIG. See <https://github.com/CTSRD-CHERI/TestRIG/blob/master/RVFI-DII.md>.
 # See the builds/*_RVFI_DII_*/ Makefiles.
 
+VERBOSE ?= false
+
+INCLUDE_MEM_DELAY_SHIM ?= false
+
 # default 1 core
 CORE_NUM ?= 1
 # TSO or WEAK
@@ -167,8 +171,19 @@ BSC_CONTRIB_DIRS = $(BSC_CONTRIB_LIB_DIR)/Bus
 
 BSC_PATH += -p +:$(BSC_CONTRIB_DIRS):$(WINDCORE_IFC_DIR):$(RISCV_HPM_EVENTS_DIR):$(CHERICAPLIB_DIR):$(TAG_CONTROLLER_DIRS):$(COREW_DIRS):$(BLUESTUFF_DIRS)
 
+ifeq ($(INCLUDE_MEM_DELAY_SHIM),true)
+BSC_COMPILATION_FLAGS += \
+	-D INCLUDE_MEM_DELAY_SHIM
+endif
+
+ifeq ($(VERBOSE),true)
+BSC_COMPILATION_FLAGS += \
+	-D VERBOSE
+endif
+	
 ifeq ($(RVFI),true)
 BSC_COMPILATION_FLAGS += \
 	-D RVFI
 BSC_PATH += -p +:$(CORE_DIR)/src_Verifier/BSV-RVFI-DII
 endif
+
