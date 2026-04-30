@@ -1654,6 +1654,12 @@ module mkMemExePipeline#(MemExeInput inIfc, ICoCache iMem)(MemExePipeline);
         return op == Prefetch(InstructionLoad);
     endfunction
 
+    function deqLdNotIPrefetch;
+        let {_lsqTag, _addr, _loadTags, _pcHash, op} = reqLdQ.first;
+
+        return op != Prefetch(InstructionLoad);
+    endfunction
+
     rule sendPrefetchIToIMem(deqLdIPrefetch);
         let {lsqTag, addr, loadTags, pcHash, op} <- toGet(reqLdQ).get;
 
@@ -1663,7 +1669,7 @@ module mkMemExePipeline#(MemExeInput inIfc, ICoCache iMem)(MemExePipeline);
 `endif
 
     // send req to D$
-    rule sendLdToMem;
+    rule sendLdToMem(deqLdNotIPrefetch);
         let {lsqTag, addr, loadTags, pcHash, op} <- toGet(reqLdQ).get;
 
         doAssert(op != Lr, "Cannot send Lr to cache");
