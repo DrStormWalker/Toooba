@@ -487,7 +487,8 @@ endfunction
             data: data,
             child: ?
         };
-        rsToPQ.enq(resp);
+        if (req.op != Zero)
+            rsToPQ.enq(resp);
         // req parent for upgrade & change state
         rqToPIndexQ_sendRsToP.enq(n);
         cRqMshr.sendRsToP_cRq.setWaitSt_setSlot_clearData(n, L1CRqSlot {
@@ -561,7 +562,18 @@ endfunction
             child: ?,
             isPrefetchRq: False
         };
-        rqToPQ.enq(cRqToP);
+        if (req.op == Zero) begin
+            $display("USING BODGE");
+            pipeline.send(PRs (L1PipePRsIn {
+                addr: req.addr,
+                toState: req.toState,
+                data: Valid(memTaggedDataVectorToCline(replicate(0))),
+                way: slot.way
+            }));
+        end else begin
+            rqToPQ.enq(cRqToP);
+        end
+
        if (verbose)
         $display("%t L1 %m sendRqToP: ", $time,
             fshow(n), " ; ",
@@ -776,6 +788,52 @@ endfunction
         processAmo <= Invalid;
     endrule
 
+//`ifdef Zicboz
+//    FIFO#(Tuple2#(procRqT, cRqIdxT)) zeroQ <- mkFIFO;
+//
+//    rule releaseZero;
+//        let {req, n} <- toGet(zeroQ).get;
+//        let {be, wrLine} <- procResp.respSt(req.id);
+//        
+//        let newLine = memTaggedDataVectorToCline(replicate(0));
+//
+//        Maybe#(cRqIdxT) succ = pipeOutSucc;
+//        pipeline.deqWrite(succ, RamData {
+//            info: CacheInfo {
+//                tag: getTag(req.addr), // should be the same as original tag
+//                // use max here. ram.info.cs > req.toState is possible in
+//                // may cache hit cases (e.g., req S and hit in M).
+//                // req.toState > ram.info.cs is also possible in case of
+//                // req M and hit E.
+//                cs: M,
+//                dir: ?,
+//                owner: Valid(n),
+//                other: ?
+//            },
+//            line: newLine // write new data into cache
+//        }, isValid(succ) ? pipeOutNextInQueue : pipeOutSecondInQueue, True);
+//
+//        if (!isValid(succ) &&& pipeOutNextInQueue matches tagged Valid .nextInQueue) begin
+//            if (verbose)
+//                $display("%t L1 %m pipelineResp: Hit func: dequeuing req: mshr: %d, queueSucc: ",
+//                    $time,
+//                    nextInQueue,
+//                    fshow(pipeOutSecondInQueue)
+//                );
+//            cRqRetryIndexQ.enq(nextInQueue);
+//            cRqMshr.manageQueue.resetEntry(nextInQueue);
+//        end
+//
+//        if (!cRqIsPrefetch[n]) begin
+//            prefetcher.reportAccess(req.addr, req.pcHash, HIT);
+//            llcPrefetcher.reportAccess(req.addr, req.pcHash, HIT);
+//        end
+//
+//        cRqMshr.pipelineResp.releaseEntry(n);
+//    endrule
+//`endif
+//
+//
     rule pipelineResp_cRq(!isValid(processAmo) &&& pipeOut.cmd matches tagged L1CRq .n);
        if (verbose)
         $display("%t L1 %m pipelineResp: ", $time, fshow(pipeOut));
@@ -792,6 +850,7 @@ endfunction
         action
             // resp to proc
             procResp.respLrScAmo(procRq.id, fromInteger(valueof(ScFailVal)));
+
             // reset link addr
             linkAddr <= Invalid;
             // deq pipeline (we cannot swap in successor because Sc may not
@@ -822,29 +881,6 @@ endfunction
         endaction
         endfunction
 
-`ifdef Zicboz
-        function Action cRqZero;
-        action
-            let {be, wrLine} <- procResp.respSt(procRq.id);
-
-            Line newLine = memTaggedDataVectorToCline(replicate(0));
-
-            pipeline.deqWrite(pipeOutSucc, RamData {
-                info: CacheInfo {
-                    tag: getTag(procRq.addr),
-                    cs: M,
-                    dir: ?,
-                    owner: pipeOutSucc,
-                    other: ?
-                },
-                line: newLine
-            }, isValid(pipeOutSucc) ? pipeOutNextInQueue : pipeOutSecondInQueue, True);
-
-            // cRqMshr.pipelineResp.releaseEntry(n);
-        endaction
-        endfunction
-`endif
-
         // function to process cRq miss without replacement (MSHR slot may have garbage)
         function Action cRqMissNoReplacement;
         action
@@ -857,11 +893,30 @@ endfunction
                 "waitP must be false and cs must not be enough"
             );
 
-`ifdef Zicboz
-            if (procRq.op == Zero) begin
-                cRqZero;
-            end else begin
-`endif
+//`ifdef Zicboz
+//            if (procRq.op == Zero) begin
+//                cRqMshr.pipelineResp.setStateSlot(n, WaitSt, L1CRqSlot {
+//                    way: pipeOut.way, // use way from pipeline
+//                    cs: ram.info.cs, // record cs for future rqToPIndexQ.deq
+//                    repTag: ?, // no replacement
+//                    waitP: True
+//                });
+//
+//                // deq pipeline & set owner, tag
+//                pipeline.deqWrite(Invalid, RamData {
+//                    info: CacheInfo {
+//                        tag: getTag(procRq.addr), // tag may be garbage if cs == I
+//                        cs: ram.info.cs,
+//                        dir: ?,
+//                        owner: Valid (n), // owner is req itself
+//                        other: ?
+//                    },
+//                    line: ram.line
+//                }, pipeOutNextInQueue, False);
+//        
+//                zeroQ.enq(tuple2(procRq, n));
+//            end else begin
+//`endif
                 // Thus we must send req to parent
                 // XXX first send to a temp indexQ to avoid conflict, then merge to rqToPIndexQ later
                 rqToPIndexQ_pipelineResp.enq(n);
@@ -887,28 +942,45 @@ endfunction
                     prefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
                     llcPrefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
                 end
-`ifdef Zicboz
-            end
-`endif
+//`ifdef Zicboz
+//            end
+//`endif
         endaction
         endfunction
 
         // function to do replacement for cRq
         function Action cRqReplacement;
         action
-`ifdef Zicboz
-            if (procRq.op == Zero) begin
-                cRqMshr.pipelineResp.setStateSlot(n, WaitNewTag, L1CRqSlot {
-                    way: pipeOut.way, // use way from pipeline
-                    cs: I,
-                    repTag: ram.info.tag, // tag being replaced
-                    waitP: False // we send req to parent later (when resp to parent is sent)
-                });
-                cRqMshr.pipelineResp.setData(n, ram.info.cs == M ? Valid (ram.line) : Invalid);
-
-                cRqZero;
-            end else begin
-`endif
+//`ifdef Zicboz
+//            if (procRq.op == Zero) begin
+//                // deq pipeline
+//                pipeline.deqWrite(Invalid, RamData {
+//                    info: CacheInfo {
+//                        tag: getTag(procRq.addr), // set to req tag (old tag is replaced right now)
+//                        cs: I,
+//                        dir: ?,
+//                        owner: Valid (n), // owner is req itself
+//                        other: ?
+//                    },
+//                    line: ?
+//                }, pipeOutNextInQueue, False);
+//
+//                cRqMshr.pipelineResp.setStateSlot(n, WaitNewTag, L1CRqSlot {
+//                    way: pipeOut.way, // use way from pipeline
+//                    cs: I,
+//                    repTag: ram.info.tag, // tag being replaced
+//                    waitP: False // we send req to parent later (when resp to parent is sent)
+//                });
+//
+//                cRqMshr.pipelineResp.setData(n, ram.info.cs == M ? Valid (ram.line) : Invalid);
+//
+//                let slot = cRqMshr.pipelineResp.getSlot(n);
+//
+//                procResp.evict(getLineAddr({slot.repTag, truncate(procRq.addr)}));
+//
+//                zeroQ.enq(tuple2(procRq, n));
+//            end else begin
+//`endif
                 // deq pipeline
                 pipeline.deqWrite(Invalid, RamData {
                     info: CacheInfo {
@@ -939,9 +1011,9 @@ endfunction
                 if(linkAddr == Valid (repLineAddr)) begin
                     linkAddr <= Invalid;
                 end
-`ifdef Zicboz
-            end
-`endif
+//`ifdef Zicboz
+//            end
+//`endif
         endaction
         endfunction
 
