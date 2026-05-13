@@ -126,9 +126,8 @@ typedef struct {
 
 typedef enum {
     Hardware,
-    Software,
-    No
-} IsPrefetch deriving(Bits, Eq, FShow);
+    Software
+} PrefetchOrigin deriving(Bits, Eq, FShow);
 
 module mkL1Bank#(
     Bit#(lgBankNum) bankId,
@@ -201,7 +200,7 @@ module mkL1Bank#(
     // we process AMO resp in a new cycle to cut critical path
     Reg#(Maybe#(AmoHitInfo#(cRqIdxT, procRqT))) processAmo <- mkReg(Invalid);
 
-    Vector#(cRqNum, Reg#(Bool)) cRqIsPrefetch <- replicateM(mkReg(?));
+    Vector#(cRqNum, Reg#(Maybe#(PrefetchOrigin))) cRqIsPrefetch <- replicateM(mkReg(?));
     let prefetcher <- mkL1DPrefetcher;
     let llcPrefetcher <- mkLLDPrefetcherInL1D;
 
@@ -339,7 +338,7 @@ endfunction
             addr: r.addr,
             mshrIdx: n
         }));
-        cRqIsPrefetch[n] <= True;
+        cRqIsPrefetch[n] <= Valid(software ? Software : Hardware);
         // performance counter: cRq type
        if (verbose)
         $display("%t L1 %m createPrefetchRq: ", $time,
@@ -365,7 +364,7 @@ endfunction
             addr: req.addr,
             mshrIdx: n
         }));
-        cRqIsPrefetch[n] <= False;
+        cRqIsPrefetch[n] <= Invalid;
        if (verbose)
         $display("%t L1 %m cRqTransfer_retry: ", $time,
             fshow(n), " ; ",
@@ -384,7 +383,7 @@ endfunction
             addr: r.addr,
             mshrIdx: n
         }));
-        cRqIsPrefetch[n] <= False;
+        cRqIsPrefetch[n] <= Invalid;
         // performance counter: cRq type
         incrReqCnt(r.op);
        if (verbose)
@@ -629,7 +628,7 @@ endfunction
         LineMemDataOffset dataSel = getLineMemDataOffset(req.addr);
         case(req.op) matches
             Ld: begin
-                if (!cRqIsPrefetch[n]) begin
+                if (!isValid(cRqIsPrefetch[n])) begin
                     if (req.loadTags) begin
                         procResp.respLd(req.id, getTagsAt(curLine));
                     end else begin
@@ -710,7 +709,7 @@ endfunction
                 cRqRetryIndexQ.enq(nextInQueue);
                 cRqMshr.manageQueue.resetEntry(nextInQueue);
             end
-            if (!cRqIsPrefetch[n] && !(req.op matches tagged Prefetch .ty ? True : False)) begin
+            if ((cRqIsPrefetch[n] != Valid(Hardware)) && !(req.op matches tagged Prefetch .ty ? True : False)) begin
                 prefetcher.reportAccess(req.addr, req.pcHash, HIT);
                 llcPrefetcher.reportAccess(req.addr, req.pcHash, HIT);
             end
@@ -938,7 +937,7 @@ endfunction
                     },
                     line: ram.line
                 }, pipeOutNextInQueue, False);
-                if (!cRqIsPrefetch[n]) begin
+                if (cRqIsPrefetch[n] != Valid(Hardware)) begin
                     prefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
                     llcPrefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
                 end
@@ -1000,7 +999,7 @@ endfunction
                     waitP: False // we send req to parent later (when resp to parent is sent)
                 });
                 cRqMshr.pipelineResp.setData(n, ram.info.cs == M ? Valid (ram.line) : Invalid);
-                if (!cRqIsPrefetch[n]) begin
+                if (cRqIsPrefetch[n] != Valid(Hardware)) begin
                     prefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
                     llcPrefetcher.reportAccess(procRq.addr, procRq.pcHash, MISS);
                 end
@@ -1057,7 +1056,7 @@ endfunction
                     // should be added to a cRq in dependency chain & deq from pipeline
                     doAssert(isValid(cRqDependEOC), ("cRq hit on another cRq, cRqDependEOC must be true"));
                     // If this is a prefetch, we can drop the prefetch here (prefetch was probably late)
-                    if (cRqIsPrefetch[n]) begin
+                    if (isValid(cRqIsPrefetch[n])) begin
                         cRqDrop;
                     end else begin
                         cRqMshr.pipelineResp.setSucc(fromMaybe(?, cRqDependEOC), Valid (n));
@@ -1072,7 +1071,7 @@ endfunction
                 else begin
                     // if there was an option to add a dependency, L1Pipe should have found it
                     doAssert(!isValid(cRqDependEOC), ("end of chain is valid but the chosen way did not match tags"));
-                    if (cRqIsPrefetch[n]) begin
+                    if (isValid(cRqIsPrefetch[n])) begin
                         cRqDrop;
                     end else begin
                         if (cRqQueuedEOC matches tagged Valid .eoc) begin
@@ -1172,7 +1171,7 @@ endfunction
             );
             cRqHit(cOwner, procRq);
             // performance counter: miss cRq
-            if (!cRqIsPrefetch[cOwner]) begin
+            if (!isValid(cRqIsPrefetch[cOwner])) begin
                 incrMissCnt(procRq.op, cOwner);
             end
         end
