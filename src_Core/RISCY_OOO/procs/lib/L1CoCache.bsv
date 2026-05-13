@@ -187,6 +187,7 @@ interface DCoCache;
     method Action flush;
     method Bool flush_done;
     method Action resetLinkAddr;
+    method Action prefetchRq(Addr addr);
     interface Perf#(L1DPerfType) perf;
 `ifdef PERFORMANCE_MONITORING
     method EventsL1D events;
@@ -248,6 +249,7 @@ module mkDCoCache#(L1ProcResp#(DProcReqId) procResp)(DCoCache);
 
     method flush = cache.flush;
     method flush_done = cache.flush_done;
+    method prefetchRq = cache.prefetchRq;
 
     method Action resetLinkAddr;
         cache.resetLinkAddr;

@@ -114,6 +114,7 @@ interface L1Bank#(
 `ifdef PERFORMANCE_MONITORING
     method EventsL1D events;
 `endif
+    method Action prefetchRq(Addr addr);
 endinterface
 
 typedef struct {
@@ -122,6 +123,12 @@ typedef struct {
     Maybe#(cRqIdxT) succ; // same-addr-successor of AMO req
     Maybe#(cRqIdxT) nextInQueue;
 } AmoHitInfo#(type cRqIdxT, type cRqT) deriving(Bits, Eq, FShow);
+
+typedef enum {
+    Hardware,
+    Software,
+    No
+} IsPrefetch deriving(Bits, Eq, FShow);
 
 module mkL1Bank#(
     Bit#(lgBankNum) bankId,
@@ -313,6 +320,34 @@ action
 endaction
 endfunction
 
+    function Action doPrefetchRq(Addr addr, Bool software);
+    action
+        procRqT r = ProcRq {
+            id: ?, //Or maybe do 0 here
+            addr: addr,
+            toState: S,
+            op: Ld,
+            byteEn: ?,
+            data: ?,
+            amoInst: ?,
+            loadTags: ?,
+            pcHash: ?
+        };
+        cRqIdxT n <- cRqMshr.cRqTransfer.getEmptyEntryInit(r);
+        // send to pipeline
+        pipeline.send(CRq (L1PipeRqIn {
+            addr: r.addr,
+            mshrIdx: n
+        }));
+        cRqIsPrefetch[n] <= True;
+        // performance counter: cRq type
+       if (verbose)
+        $display("%t L1 %m createPrefetchRq: ", $time,
+            fshow(n), " ; ",
+            fshow(r)
+        );
+    endaction
+    endfunction
 
     function tagT getTag(Addr a) = truncateLSB(a);
 
@@ -388,35 +423,11 @@ endfunction
         $display("%t L1 %m pRsTransfer: ", $time, fshow(resp));
     endrule
 
-
-    (* descending_urgency = "pRsTransfer, cRqTransfer_retry, cRqTransfer_new, createPrefetchRq" *)
-    (* descending_urgency = "pRqTransfer, cRqTransfer_retry, cRqTransfer_new, createPrefetchRq" *)
+    // (* descending_urgency = "pRsTransfer, cRqTransfer_retry, cRqTransfer_new, createPrefetchRq" *)
+    // (* descending_urgency = "pRqTransfer, cRqTransfer_retry, cRqTransfer_new, createPrefetchRq" *)
     rule createPrefetchRq(flushDone);
         Addr addr <- prefetcher.getNextPrefetchAddr;
-        procRqT r = ProcRq {
-            id: ?, //Or maybe do 0 here
-            addr: addr,
-            toState: S,
-            op: Ld,
-            byteEn: ?,
-            data: ?,
-            amoInst: ?,
-            loadTags: ?,
-            pcHash: ?
-        };
-        cRqIdxT n <- cRqMshr.cRqTransfer.getEmptyEntryInit(r);
-        // send to pipeline
-        pipeline.send(CRq (L1PipeRqIn {
-            addr: r.addr,
-            mshrIdx: n
-        }));
-        cRqIsPrefetch[n] <= True;
-        // performance counter: cRq type
-       if (verbose)
-        $display("%t L1 %m createPrefetchRq: ", $time,
-            fshow(n), " ; ",
-            fshow(r)
-        );
+        doPrefetchRq(addr, False);
     endrule
 
 `ifdef SECURITY_CACHES
@@ -620,7 +631,9 @@ endfunction
                 linkAddr <= Valid (getLineAddr(req.addr));
             end
 `ifdef Zicbop
-            tagged Prefetch .ty: begin end
+            tagged Prefetch .ty: begin
+                // procResp.respLd(req.id, getTaggedDataAt(curLine, dataSel));
+            end
 `endif
             Amo: begin
                 noAction;
@@ -685,7 +698,7 @@ endfunction
                 cRqRetryIndexQ.enq(nextInQueue);
                 cRqMshr.manageQueue.resetEntry(nextInQueue);
             end
-            if (!cRqIsPrefetch[n]) begin
+            if (!cRqIsPrefetch[n] && !(req.op matches tagged Prefetch .ty ? True : False)) begin
                 prefetcher.reportAccess(req.addr, req.pcHash, HIT);
                 llcPrefetcher.reportAccess(req.addr, req.pcHash, HIT);
             end
@@ -827,7 +840,7 @@ endfunction
                 line: newLine
             }, isValid(pipeOutSucc) ? pipeOutNextInQueue : pipeOutSecondInQueue, True);
 
-            cRqMshr.pipelineResp.releaseEntry(n);
+            // cRqMshr.pipelineResp.releaseEntry(n);
         endaction
         endfunction
 `endif
@@ -885,6 +898,14 @@ endfunction
         action
 `ifdef Zicboz
             if (procRq.op == Zero) begin
+                cRqMshr.pipelineResp.setStateSlot(n, WaitNewTag, L1CRqSlot {
+                    way: pipeOut.way, // use way from pipeline
+                    cs: I,
+                    repTag: ram.info.tag, // tag being replaced
+                    waitP: False // we send req to parent later (when resp to parent is sent)
+                });
+                cRqMshr.pipelineResp.setData(n, ram.info.cs == M ? Valid (ram.line) : Invalid);
+
                 cRqZero;
             end else begin
 `endif
@@ -1332,6 +1353,10 @@ endfunction
 `ifdef PERFORMANCE_MONITORING
     method EventsL1D events = perf_events[0];
 `endif
+
+    method Action prefetchRq(Addr addr);
+        doPrefetchRq(addr, True);
+    endmethod
 endmodule
 
 
@@ -1577,4 +1602,8 @@ module mkL1Cache#(
         return ret;
     endmethod
 `endif
+
+    method Action prefetchRq(Addr addr);
+        banks[getBankId(addr)].prefetchRq(addr);
+    endmethod
 endmodule

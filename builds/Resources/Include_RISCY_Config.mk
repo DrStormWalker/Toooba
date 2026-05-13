@@ -12,7 +12,7 @@ CORE_SIZE ?= SMALL
 # cache size
 CACHE_SIZE ?= LARGE
 # always include perf counter
-PERF_COUNT := true
+PERF_COUNT ?= true
 # dram type in simulation: VC707 or AWSF1
 SIM_DRAM_TYPE := AWSF1
 # use Xilinx FPU IP cores

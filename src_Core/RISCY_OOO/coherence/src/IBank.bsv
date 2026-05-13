@@ -246,7 +246,7 @@ module mkIBank#(
         cRqIsPrefetch[n] <= True;
         addedCRqs.incr(1);
 
-        // Prefformance counter: cRq type
+        // Performance counter: cRq type
         //incrReqCnt; TODO: Make separate counter for prefetch requests
         if (verbose)
             $display("%t I %m createPrefetchRq: ", $time,

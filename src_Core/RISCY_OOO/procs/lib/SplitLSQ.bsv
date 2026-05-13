@@ -53,6 +53,7 @@ import Exec::*;
 import FP_Utils::*;
 import CacheUtils::*; // For CLoadTags alignment
 import RegFile::*; // Just for the interface
+import MemoryTypes::*;
 
 // I don't want to export auxiliary functions, so manually export all types
 export LdQMemFunc(..);
@@ -1693,6 +1694,7 @@ module mkSplitLSQ(SplitLSQ);
                 Bool overlap = overlapAddr(pa, shift_be,
                                            ld_paddr_updAddr[i],
                                            ld_shiftedBE_updAddr[i]);
+                Bool not_prefetch = (ld_memFunc[i] matches tagged Prefetch .ty ? False : True);
                 // figure out if the load reads a stale value. Note that
                 // checking executing bit is enough: every done load must also
                 // have executing bit set.
@@ -1722,7 +1724,7 @@ module mkSplitLSQ(SplitLSQ);
                     read_stale = False;
                 end
                 // combine everything together
-                return valid && younger && overlap && read_stale;
+                return valid && younger && overlap && read_stale && not_prefetch;
             endfunction
             Vector#(LdQSize, Bool) killLds = map(needKill, idxVec);
             if(findOldestLd(killLds) matches tagged Valid .killTag) begin
@@ -1757,6 +1759,7 @@ module mkSplitLSQ(SplitLSQ);
             $display("[LSQ - issueLd] ", fshow(tag), "; ", fshow(pa),
                      "; ", fshow(shift_be), "; ", fshow(sbRes));
         end
+        doAssert(ld_memFunc[tag] == Ld, "only issue Ld");
         doAssert(pa == ld_paddr_issue[tag], "Ld paddr incorrect");
         doAssert(shift_be == ld_shiftedBE_issue[tag], "Ld BE incorrect");
         doAssert(ld_valid_issue[tag], "issuing Ld must be valid");
@@ -1765,7 +1768,6 @@ module mkSplitLSQ(SplitLSQ);
         doAssert(!ld_executing_issue[tag], "issuing Ld must not be executing");
         doAssert(!ld_done_issue[tag], "issuing Ld must not be done");
         doAssert(!isValid(ld_killed_issue[tag]), "issuing Ld must not be killed");
-        doAssert(ld_memFunc[tag] == Ld, "only issue Ld");
         doAssert(!ld_isMMIO_issue[tag], "issuing Ld cannot be MMIO");
         doAssert(
             !isValid(ld_depLdQDeq_issue[tag]) &&
@@ -1911,7 +1913,8 @@ module mkSplitLSQ(SplitLSQ);
             Bool overlap = overlapAddr(pa, shift_be,
                                        ld_paddr_issue[i],
                                        ld_shiftedBE_issue[i]);
-            return valid && older &&
+            Bool not_prefetch = (ld_memFunc[i] matches tagged Prefetch .ty ? False : True)
+            return valid && older && not_prefetch &&
                    (acquire || multicore && computed && unissued && overlap);
         endfunction
         Vector#(LdQSize, Bool) checkLds = map(isLdNeedCheck,
@@ -2295,7 +2298,8 @@ module mkSplitLSQ(SplitLSQ);
             Bool executing = ld_executing_evict[i];
             Bool read_mem = !isValid(ld_readFrom_evict[i]);
             Bool overlap = getLineAddr(ld_paddr_evict[i]) == lineAddr;
-            return valid && executing && read_mem && overlap;
+            Bool not_prefetch = (ld_memFunc[i] matches tagged Prefetch .ty ? False : True);
+            return valid && executing && read_mem && overlap && not_prefetch;
         endfunction
 
         // kill the oldest load

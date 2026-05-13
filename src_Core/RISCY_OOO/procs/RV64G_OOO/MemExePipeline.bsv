@@ -721,7 +721,8 @@ module mkMemExePipeline#(MemExeInput inIfc, ICoCache iMem)(MemExePipeline);
 `endif
 
         // check if addr is MMIO (only valid in case of no page fault)
-        Bool isMMIO = inIfc.isMMIOAddr(paddr);
+        Bool isMMIO = inIfc.isMMIOAddr(paddr) && (x.mem_func matches tagged Prefetch .ty ? False : True);
+        Bool isPrefetchMMIO = inIfc.isMMIOAddr(paddr) && (x.mem_func matches tagged Prefetch .ty ? True : False);
         // raise access fault in case of MMIO Lr/Sc
         if(!isValid(cause) && isMMIO) begin
             case(x.mem_func)
@@ -812,6 +813,7 @@ module mkMemExePipeline#(MemExeInput inIfc, ICoCache iMem)(MemExePipeline);
             else begin
                 doAssert(False, "must be in LdQ");
             end
+
             issueLd.wset(LSQIssueLdInfo {
                 tag: ldTag,
                 paddr: paddr,
@@ -1654,10 +1656,16 @@ module mkMemExePipeline#(MemExeInput inIfc, ICoCache iMem)(MemExePipeline);
         return op == Prefetch(InstructionLoad);
     endfunction
 
-    function deqLdNotIPrefetch;
+    function deqLdRWPrefetch;
         let {_lsqTag, _addr, _loadTags, _pcHash, op} = reqLdQ.first;
 
-        return op != Prefetch(InstructionLoad);
+        return (op matches tagged Prefetch.ty ? True : False) && op != Prefetch(InstructionLoad);
+    endfunction
+
+    function deqLdNotPrefetch;
+        let {_lsqTag, _addr, _loadTags, _pcHash, op} = reqLdQ.first;
+
+        return (op matches tagged Prefetch .ty ? False : True);
     endfunction
 
     rule sendPrefetchIToIMem(deqLdIPrefetch);
@@ -1666,10 +1674,20 @@ module mkMemExePipeline#(MemExeInput inIfc, ICoCache iMem)(MemExePipeline);
         iMem.prefetchRq(addr);
         lsq.respPrefetch(lsqTag);
     endrule
+
+    rule sendPrefetchRWToDMem(deqLdRWPrefetch);
+        let {lsqTag, addr, loadTags, pcHash, op} <- toGet(reqLdQ).get;
+
+        if (!inIfc.isMMIOAddr(addr)) begin
+            dMem.prefetchRq(addr);
+        end
+
+        lsq.respPrefetch(lsqTag);
+    endrule
 `endif
 
     // send req to D$
-    rule sendLdToMem(deqLdNotIPrefetch);
+    rule sendLdToMem(deqLdNotPrefetch);
         let {lsqTag, addr, loadTags, pcHash, op} <- toGet(reqLdQ).get;
 
         doAssert(op != Lr, "Cannot send Lr to cache");
